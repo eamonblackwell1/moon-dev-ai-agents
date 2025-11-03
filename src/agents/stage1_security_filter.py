@@ -3,9 +3,9 @@
 Quickly eliminates honeypots, scams, and dangerous tokens
 Built with love by Moon Dev 🚀
 
-This filter is FAST (< 10 seconds) and uses FREE APIs:
+This filter is FAST (< 10 seconds) and uses:
+- BirdEye data (passed from orchestrator)
 - GoPlus Security API (1000 requests/day free)
-- DexScreener (unlimited free)
 """
 
 import os
@@ -26,9 +26,9 @@ class Stage1SecurityFilter:
     Fast security filter to eliminate obvious scams
 
     Checks:
-    1. Honeypot detection
+    1. Honeypot detection (GoPlus)
     2. Mintable tokens (can create infinite supply)
-    3. Liquidity minimums
+    3. Liquidity minimums (from BirdEye data)
     4. Basic security score
     """
 
@@ -40,7 +40,6 @@ class Stage1SecurityFilter:
         self.min_liquidity = 5000  # $5K minimum
         self.min_volume = 5000     # $5K daily volume minimum
         self.min_security_score = 60  # GoPlus score minimum
-        self.max_age_hours = 72    # Don't check very old tokens
 
         # GoPlus API (get free key at https://gopluslabs.io)
         self.goplus_api_key = os.getenv('GOPLUS_API_KEY', '')  # Optional - works without key too
@@ -48,54 +47,6 @@ class Stage1SecurityFilter:
         # Data storage
         self.data_dir = Path(__file__).parent.parent / "data" / "security_filter"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-
-    def check_dexscreener_safety(self, token_address: str) -> Tuple[bool, Dict]:
-        """
-        Quick safety check using DexScreener data
-
-        Returns:
-            (passed, details) - Whether it passed and why
-        """
-        try:
-            url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
-            response = requests.get(url, timeout=5)
-
-            if response.status_code != 200:
-                return False, {'error': 'API unavailable'}
-
-            data = response.json()
-
-            if not data.get('pairs'):
-                return False, {'error': 'No trading pairs found'}
-
-            # Get most liquid pair
-            main_pair = max(data['pairs'], key=lambda x: float(x.get('liquidity', {}).get('usd', 0)))
-
-            liquidity = float(main_pair.get('liquidity', {}).get('usd', 0))
-            volume_24h = float(main_pair.get('volume', {}).get('h24', 0))
-
-            # Basic safety checks
-            checks = {
-                'has_liquidity': liquidity >= self.min_liquidity,
-                'has_volume': volume_24h >= self.min_volume,
-                'liquidity_locked': main_pair.get('liquidity', {}).get('base', 0) > 0,
-                'price_impact_low': True  # DexScreener pairs are generally safe
-            }
-
-            passed = all(checks.values())
-
-            details = {
-                'liquidity_usd': liquidity,
-                'volume_24h': volume_24h,
-                'checks': checks,
-                'pair_address': main_pair.get('pairAddress', ''),
-                'dex': main_pair.get('dexId', '')
-            }
-
-            return passed, details
-
-        except Exception as e:
-            return False, {'error': str(e)}
 
     def check_goplus_security(self, token_address: str) -> Tuple[bool, Dict]:
         """
@@ -121,8 +72,13 @@ class Stage1SecurityFilter:
 
             data = response.json()
 
-            if 'result' not in data or token_address.lower() not in data['result']:
-                return True, {'warning': 'No security data available'}
+            # Check if result exists and is not None
+            if 'result' not in data or data['result'] is None:
+                return True, {'warning': 'No security data available - result is None'}
+
+            # Check if token exists in result
+            if token_address.lower() not in data['result']:
+                return True, {'warning': 'Token not found in GoPlus database'}
 
             security_info = data['result'][token_address.lower()]
 
@@ -163,34 +119,68 @@ class Stage1SecurityFilter:
             # If GoPlus fails, don't block the token (it's optional)
             return True, {'warning': f'GoPlus check failed: {str(e)}'}
 
-    def quick_filter(self, token_address: str) -> Dict:
+    def quick_filter(self, token_input) -> Dict:
         """
         Run complete security filter on a token
+
+        Args:
+            token_input: Either a token address (str) OR a dict with BirdEye data
 
         Returns:
             Dictionary with pass/fail and all details
         """
+        # Handle both string addresses and dict inputs
+        if isinstance(token_input, dict):
+            token_address = token_input.get('address')
+            has_birdeye_data = True
+            # Extract liquidity and volume from BirdEye data
+            liquidity_usd = token_input.get('liquidity') or token_input.get('liquidity_usd', 0)
+            volume_24h = token_input.get('volume_24h') or token_input.get('volume_24h_usd', 0)
+        else:
+            token_address = token_input
+            has_birdeye_data = False
+            liquidity_usd = 0
+            volume_24h = 0
+
         print(colored(f"\n🔍 Security check: {token_address[:8]}...", "cyan"))
 
         result = {
             'token_address': token_address,
             'passed': False,
-            'checks': {}
+            'checks': {},
+            'liquidity_usd': liquidity_usd,
+            'volume_24h': volume_24h
         }
 
-        # Step 1: DexScreener safety check (required)
-        dex_passed, dex_details = self.check_dexscreener_safety(token_address)
-        result['checks']['dexscreener'] = {
-            'passed': dex_passed,
-            'details': dex_details
-        }
+        # Step 1: Liquidity/Volume check using BirdEye data
+        if has_birdeye_data:
+            liq_vol_passed = liquidity_usd >= self.min_liquidity and volume_24h >= self.min_volume
 
-        if not dex_passed:
-            print(colored(f"  ❌ Failed DexScreener checks", "red"))
-            result['failure_reason'] = 'Failed liquidity/volume requirements'
-            return result
+            result['checks']['liquidity_volume'] = {
+                'passed': liq_vol_passed,
+                'details': {
+                    'liquidity_usd': liquidity_usd,
+                    'volume_24h': volume_24h,
+                    'source': 'BirdEye'
+                }
+            }
 
-        print(colored(f"  ✅ Passed DexScreener (Liq: ${dex_details['liquidity_usd']:,.0f})", "green"))
+            if not liq_vol_passed:
+                print(colored(f"  ❌ Failed liquidity/volume (Liq: ${liquidity_usd:,.0f}, Vol: ${volume_24h:,.0f})", "red"))
+                result['failure_reason'] = f'Failed liquidity/volume requirements (Liq: ${liquidity_usd:,.0f} < ${self.min_liquidity}, Vol: ${volume_24h:,.0f} < ${self.min_volume})'
+                return result
+
+            print(colored(f"  ✅ Passed liquidity/volume (BirdEye - Liq: ${liquidity_usd:,.0f}, Vol: ${volume_24h:,.0f})", "green"))
+        else:
+            # No BirdEye data available - skip liquidity check
+            print(colored(f"  ⚠️ No BirdEye data provided, skipping liquidity/volume check", "yellow"))
+            result['checks']['liquidity_volume'] = {
+                'passed': True,
+                'details': {
+                    'warning': 'No BirdEye data provided',
+                    'source': 'None'
+                }
+            }
 
         # Step 2: GoPlus security check (optional but recommended)
         goplus_passed, goplus_details = self.check_goplus_security(token_address)
@@ -201,7 +191,7 @@ class Stage1SecurityFilter:
 
         if not goplus_passed:
             print(colored(f"  ❌ Failed security check (honeypot/mintable)", "red"))
-            result['failure_reason'] = 'Failed security requirements'
+            result['failure_reason'] = f'Failed security requirements: honeypot={goplus_details.get("is_honeypot")}, mintable={goplus_details.get("is_mintable")}'
             return result
 
         if 'warning' in goplus_details:
@@ -211,25 +201,22 @@ class Stage1SecurityFilter:
 
         # All checks passed!
         result['passed'] = True
-        result['liquidity_usd'] = dex_details['liquidity_usd']
-        result['volume_24h'] = dex_details['volume_24h']
-
         print(colored(f"  🎯 Token PASSED security filter!", "green", attrs=['bold']))
 
         return result
 
-    def batch_filter(self, token_addresses: List[str], max_workers: int = 5) -> List[Dict]:
+    def batch_filter(self, token_inputs: List, max_workers: int = 3) -> List[Dict]:
         """
         Filter multiple tokens in parallel for speed
 
         Args:
-            token_addresses: List of token addresses to check
-            max_workers: Number of parallel threads
+            token_inputs: List of token addresses (strings) or token dicts with BirdEye data
+            max_workers: Number of parallel threads (reduced from 5 to 3 for stability)
 
         Returns:
             List of results, sorted by liquidity
         """
-        print(colored(f"\n🚀 Batch filtering {len(token_addresses)} tokens...", "cyan", attrs=['bold']))
+        print(colored(f"\n🚀 Batch filtering {len(token_inputs)} tokens...", "cyan", attrs=['bold']))
 
         results = []
         passed_count = 0
@@ -238,22 +225,24 @@ class Stage1SecurityFilter:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             future_to_token = {
-                executor.submit(self.quick_filter, addr): addr
-                for addr in token_addresses
+                executor.submit(self.quick_filter, token_input): token_input
+                for token_input in token_inputs
             }
 
             # Process completed tasks
             for future in as_completed(future_to_token):
-                token = future_to_token[future]
+                token_input = future_to_token[future]
                 try:
                     result = future.result()
                     results.append(result)
                     if result['passed']:
                         passed_count += 1
                 except Exception as e:
-                    print(colored(f"❌ Error checking {token}: {str(e)}", "red"))
+                    # Extract address for error message
+                    addr = token_input if isinstance(token_input, str) else token_input.get('address', 'unknown')
+                    print(colored(f"❌ Error checking {addr}: {str(e)}", "red"))
                     results.append({
-                        'token_address': token,
+                        'token_address': addr,
                         'passed': False,
                         'error': str(e)
                     })
@@ -264,12 +253,12 @@ class Stage1SecurityFilter:
 
         # Print summary
         print(colored(f"\n📊 Security Filter Results:", "green", attrs=['bold']))
-        print(colored(f"   Passed: {passed_count}/{len(token_addresses)} tokens", "green"))
+        print(colored(f"   Passed: {passed_count}/{len(token_inputs)} tokens", "green"))
 
         if passed_tokens:
             print(colored(f"\n🏆 Top Secured Tokens:", "yellow"))
             for i, token in enumerate(passed_tokens[:5], 1):
-                print(colored(f"   {i}. {token['token_address'][:8]}... - Liq: ${token['liquidity_usd']:,.0f}", "yellow"))
+                print(colored(f"   {i}. {token['token_address'][:8]}... - Liq: ${token.get('liquidity_usd', 0):,.0f}", "yellow"))
 
         # Save results
         self.save_results(results)
@@ -308,7 +297,6 @@ def main():
         print(colored(f"\n✅ {len(passed)} tokens passed security filter", "green"))
     else:
         print(colored("⚠️ No test tokens provided. Add some Solana token addresses to test.", "yellow"))
-        print(colored("   Get them from: https://dexscreener.com/solana", "white"))
 
 if __name__ == "__main__":
     main()

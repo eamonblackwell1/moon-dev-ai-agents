@@ -402,7 +402,12 @@ def get_data(address, days_back_4_data, timeframe):
         print(f"❌ MoonDev Error: Failed to fetch data for address {address}. Status code: {response.status_code}")
         if response.status_code == 401:
             print("🔑 Check your BIRDEYE_API_KEY in .env file!")
-        return pd.DataFrame()
+        elif response.status_code == 429:
+            print("⏳ Rate limited by BirdEye API. Consider adding delays between requests.")
+            # Return empty DataFrame with expected columns to prevent KeyError
+            return pd.DataFrame(columns=['Datetime (UTC)', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        # Return empty DataFrame with expected columns to prevent downstream errors
+        return pd.DataFrame(columns=['Datetime (UTC)', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
 
 

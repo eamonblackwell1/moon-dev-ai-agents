@@ -50,7 +50,7 @@ class RevivalDetectorAgent:
         # Configuration
         self.min_age_hours = MIN_AGE_HOURS  # Don't look at tokens younger than this
         self.max_age_hours = MAX_AGE_HOURS  # Maximum 6 months - prevents analyzing years-old tokens
-        self.min_liquidity = MIN_LIQUIDITY_STRICT  # Minimum liquidity (serious projects only)
+        # Liquidity check removed - handled in Phase 2 pre-filter
         self.min_holders = 50  # Minimum holder count
 
         # Data storage
@@ -214,77 +214,124 @@ class RevivalDetectorAgent:
 
     def analyze_price_pattern(self, token_address: str, token_data: Dict) -> Tuple[float, Dict]:
         """
-        Analyze price action for revival patterns
+        Analyze COMPLETE price history for revival patterns (from token creation to now)
+
+        Analyzes the token's entire lifetime to find dump-floor-recovery pattern,
+        not just the most recent 3 days. This catches revivals that happened weeks ago.
 
         Returns:
             (score, details) - Score 0-1, details dictionary
         """
         try:
-            print(colored(f"  📊 Analyzing price pattern...", "yellow"))
+            print(colored(f"  📊 Analyzing complete price history...", "yellow"))
 
-            # Get OHLCV data from BirdEye (we already have this API)
-            ohlcv = get_data(token_address, days_back_4_data=3, timeframe='1H')
+            # Calculate days back from token age (fetch complete history)
+            age_hours = token_data.get('age_hours', 72)
+            days_back = min(int(age_hours / 24) + 1, 30)  # Cap at 30 days for API limits
 
-            if ohlcv is None or len(ohlcv) < 24:
-                return 0.0, {'error': 'Insufficient price data'}
+            # Choose timeframe based on token age for optimal granularity
+            if age_hours <= 1000:  # Less than 41 days
+                timeframe = '1H'  # 1-hour candles for fine detail
+            elif age_hours <= 4000:  # 41-166 days (~5.5 months)
+                timeframe = '4H'  # 4-hour candles for longer history
+            else:  # Over 166 days
+                timeframe = '1D'  # Daily candles for very old tokens
+
+            print(colored(f"     Age: {age_hours:.0f}h ({days_back} days) | Timeframe: {timeframe}", "cyan"))
+
+            # Get COMPLETE OHLCV history from BirdEye (with rate limiting)
+            ohlcv = get_data(token_address, days_back_4_data=days_back, timeframe=timeframe)
+
+            # Rate limiting for BirdEye API (1 request per second)
+            time.sleep(1.0)
+
+            if ohlcv is None or len(ohlcv) < 10:
+                print(colored(f"     ❌ Insufficient OHLCV data (got {len(ohlcv) if ohlcv is not None else 0} candles, need 10+)", "red"))
+                return 0.0, {'error': f'Insufficient price data (got {len(ohlcv) if ohlcv is not None else 0} candles)'}
+
+            # Check if DataFrame has required columns
+            if 'Close' not in ohlcv.columns or 'Volume' not in ohlcv.columns:
+                print(colored(f"     ❌ Missing required OHLCV columns", "red"))
+                return 0.0, {'error': 'Missing price or volume data'}
 
             # Convert to list for easier analysis
             prices = ohlcv['Close'].tolist()
             volumes = ohlcv['Volume'].tolist()
 
-            # Find the peak in first 12 hours
-            early_peak = max(prices[:min(12, len(prices))])
+            # Filter out None/NaN values from prices
+            prices = [p for p in prices if p is not None and not pd.isna(p)]
+            volumes = [v for v in volumes if v is not None and not pd.isna(v)]
 
-            # Find the floor after dump (hours 12-24)
-            if len(prices) >= 24:
-                floor_price = min(prices[12:24])
+            # Check if we have valid data after filtering (reduced from 24 to 10 minimum)
+            if not prices or len(prices) < 10:
+                print(colored(f"     ❌ Insufficient valid price data after filtering (got {len(prices)} candles, need 10+)", "red"))
+                return 0.0, {'error': f'Insufficient valid price data after filtering (got {len(prices)} valid candles)'}
+
+            # Find the all-time high (ATH) across COMPLETE history
+            ath_price = max(prices)
+            ath_index = prices.index(ath_price)
+
+            # Find the floor AFTER the ATH (not just recent floor)
+            if ath_index < len(prices) - 1:
+                post_ath_prices = prices[ath_index:]
+                floor_price = min(post_ath_prices)
+                floor_index = ath_index + post_ath_prices.index(floor_price)
             else:
-                floor_price = min(prices[12:])
+                floor_price = prices[-1]
+                floor_index = len(prices) - 1
 
-            # Current price (last available)
+            # Current price
             current_price = prices[-1]
 
-            # Calculate key metrics
-            dump_severity = (floor_price / early_peak) if early_peak > 0 else 1
+            # Calculate revival metrics
+            dump_severity = (floor_price / ath_price) if ath_price > 0 else 1
             recovery_ratio = (current_price / floor_price) if floor_price > 0 else 1
+            recovery_from_ath = (current_price / ath_price) if ath_price > 0 else 1
 
-            # Check for higher lows in recent hours (bullish pattern)
-            recent_prices = prices[-6:] if len(prices) >= 6 else prices
+            # Check for higher lows in recent period (bullish uptrend)
+            recent_window = min(12, len(prices))
+            recent_prices = prices[-recent_window:]
             higher_lows = self.check_higher_lows(recent_prices)
 
-            # Volume analysis - is volume returning?
+            # Volume analysis - is volume returning compared to floor period?
             recent_volume_avg = np.mean(volumes[-6:]) if len(volumes) >= 6 else 0
-            older_volume_avg = np.mean(volumes[12:18]) if len(volumes) >= 18 else recent_volume_avg
-            volume_increase = (recent_volume_avg / older_volume_avg) if older_volume_avg > 0 else 1
+            floor_volume_window = slice(max(0, floor_index-6), min(len(volumes), floor_index+6))
+            floor_volume_avg = np.mean(volumes[floor_volume_window]) if floor_index >= 6 else recent_volume_avg
+            volume_increase = (recent_volume_avg / floor_volume_avg) if floor_volume_avg > 0 else 1
 
             # Calculate revival score
             score = 0.0
 
-            # 1. Did it dump enough? (Need 40-80% dump for good entry)
-            if 0.2 <= dump_severity <= 0.6:
+            # 1. Did it dump enough? (50-90% dump creates good entry opportunity)
+            if 0.1 <= dump_severity <= 0.5:
                 score += 0.25
 
-            # 2. Is it recovering? (Up 20%+ from floor)
-            if recovery_ratio >= 1.2:
+            # 2. Is it recovering from floor? (30%+ recovery shows momentum)
+            if recovery_ratio >= 1.3:
                 score += 0.25
 
-            # 3. Higher lows pattern?
+            # 3. Higher lows pattern? (Bullish uptrend starting)
             if higher_lows:
                 score += 0.25
 
-            # 4. Volume returning?
-            if volume_increase >= 1.5:
+            # 4. Volume returning? (2x floor volume shows renewed interest)
+            if volume_increase >= 2.0:
                 score += 0.25
 
             details = {
-                'early_peak': early_peak,
+                'ath_price': ath_price,
                 'floor_price': floor_price,
                 'current_price': current_price,
                 'dump_severity': dump_severity,
                 'recovery_ratio': recovery_ratio,
+                'recovery_from_ath': recovery_from_ath,
                 'higher_lows': higher_lows,
                 'volume_increase': volume_increase,
-                'price_data_points': len(prices)
+                'price_data_points': len(prices),
+                'days_analyzed': days_back,
+                'timeframe': timeframe,
+                'ath_to_floor_pct': (1 - dump_severity) * 100,
+                'floor_to_current_pct': (recovery_ratio - 1) * 100
             }
 
             return score, details
@@ -308,6 +355,68 @@ class RevivalDetectorAgent:
 
         # Check if lows are ascending
         return all(lows[i] < lows[i+1] for i in range(len(lows)-1))
+
+    def calculate_social_sentiment_score(self, token_data: Dict) -> float:
+        """
+        Calculate social sentiment score from BirdEye metrics (no Twitter API needed!)
+
+        Uses on-chain and BirdEye social indicators:
+        - Unique wallet count (community size)
+        - Transaction velocity (buy/sell activity)
+        - Watchlist count (social interest)
+        - View count (visibility)
+        - Holder distribution (decentralization)
+
+        Returns:
+            Score from 0.0 to 1.0
+        """
+        from src.config import MIN_UNIQUE_WALLETS_24H, MIN_WATCHLIST_COUNT
+
+        score = 0.0
+
+        # 1. Community Size (25% weight) - Unique wallets show real community
+        unique_wallets = token_data.get('uniqueWallet24h', 0)
+        if unique_wallets >= MIN_UNIQUE_WALLETS_24H * 5:  # 500+ wallets
+            score += 0.25
+        elif unique_wallets >= MIN_UNIQUE_WALLETS_24H * 2:  # 200+ wallets
+            score += 0.15
+        elif unique_wallets >= MIN_UNIQUE_WALLETS_24H:  # 100+ wallets
+            score += 0.10
+
+        # 2. Transaction Velocity (25% weight) - High trade count shows activity
+        trades_1h = token_data.get('trade1h', 0)
+        if trades_1h >= 100:  # Very active
+            score += 0.25
+        elif trades_1h >= 50:  # Active
+            score += 0.15
+        elif trades_1h >= 20:  # Moderate
+            score += 0.10
+
+        # 3. Social Interest (25% weight) - Watchlist and views show attention
+        watchlist_count = token_data.get('watch', 0)
+        view_24h = token_data.get('view24h', 0)
+
+        if watchlist_count >= MIN_WATCHLIST_COUNT * 4:  # 200+ watchers
+            score += 0.15
+        elif watchlist_count >= MIN_WATCHLIST_COUNT:  # 50+ watchers
+            score += 0.10
+
+        if view_24h >= 1000:  # High visibility
+            score += 0.10
+        elif view_24h >= 500:  # Good visibility
+            score += 0.05
+
+        # 4. Buy Pressure (25% weight) - More buys than sells is bullish
+        buy_percentage = token_data.get('buy_percentage', 0)
+        if buy_percentage >= 60:  # Strong buy pressure
+            score += 0.25
+        elif buy_percentage >= 55:  # Good buy pressure
+            score += 0.15
+        elif buy_percentage >= 50:  # Neutral/slight buy
+            score += 0.10
+
+        # Cap at 1.0
+        return min(score, 1.0)
 
     def check_holder_distribution(self, token_address: str) -> Tuple[bool, Dict]:
         """
@@ -353,20 +462,22 @@ class RevivalDetectorAgent:
             else:
                 top_10_percentage = 0
 
-            # Safety threshold: Reject if top 10 holders own > 70%
-            is_safe = top_10_percentage <= 70.0
+            # Safety threshold: Reject if top 10 holders own > 30% (REDUCED from 70% for better safety)
+            from src.config import HOLDER_CONCENTRATION_THRESHOLD
+            is_safe = top_10_percentage <= HOLDER_CONCENTRATION_THRESHOLD
 
             details = {
                 'top_10_percentage': top_10_percentage,
                 'total_supply_checked': total_supply,
                 'holder_count': len(holders),
-                'is_safe': is_safe
+                'is_safe': is_safe,
+                'threshold': HOLDER_CONCENTRATION_THRESHOLD
             }
 
             if is_safe:
-                print(colored(f"    ✅ Distribution OK: Top 10 hold {top_10_percentage:.1f}%", "green"))
+                print(colored(f"    ✅ Distribution OK: Top 10 hold {top_10_percentage:.1f}% (threshold: {HOLDER_CONCENTRATION_THRESHOLD}%)", "green"))
             else:
-                print(colored(f"    ⚠️ CONCENTRATED: Top 10 hold {top_10_percentage:.1f}% (>70% threshold)", "red"))
+                print(colored(f"    ❌ CONCENTRATED: Top 10 hold {top_10_percentage:.1f}% (>{HOLDER_CONCENTRATION_THRESHOLD}% threshold)", "red"))
 
             return is_safe, details
 
@@ -452,64 +563,71 @@ class RevivalDetectorAgent:
             print(colored(f"    ❌ Smart money check error: {str(e)}", "red"))
             return 0.0, {'error': str(e)}
 
-    def calculate_revival_score(self, token_address: str) -> Dict:
+    def calculate_revival_score(self, token_input) -> Dict:
         """
         Calculate comprehensive revival score for a token
+
+        Args:
+            token_input: Either a token address (str) OR a dict with token data
 
         Returns:
             Dictionary with score and all details
         """
+        # Handle both string addresses and dict inputs
+        if isinstance(token_input, dict):
+            token_address = token_input.get('address') or token_input.get('token_address')
+            has_token_data = True
+            provided_data = token_input
+        else:
+            token_address = token_input
+            has_token_data = False
+            provided_data = None
+
         print(colored(f"\n🔍 Analyzing token: {token_address[:8]}...", "cyan"))
 
-        # Get comprehensive data from BirdEye Token Overview (more efficient than DexScreener)
-        token_overview = self.get_token_overview(token_address)
+        # Use provided data if available (skip BirdEye API call!)
+        if has_token_data:
+            print(colored(f"  ✅ Using provided token data (no API call needed)", "green"))
+            token_overview = provided_data
+        else:
+            # Get comprehensive data from BirdEye Token Overview
+            token_overview = self.get_token_overview(token_address)
 
         if not token_overview:
             print(colored("  ⚠️ Could not fetch token overview, falling back to DexScreener...", "yellow"))
             # Fallback to DexScreener if BirdEye fails
             token_data = self.get_dexscreener_data(token_address)
             if not token_data:
+                print(colored(f"  ❌ FAILED DATA FETCH: {token_address[:44]} - No data from BirdEye or DexScreener", "red"))
                 return {
                     'token_address': token_address,
                     'revival_score': 0.0,
-                    'error': 'Could not fetch token data from any source'
+                    'error': 'Could not fetch token data from any source',
+                    'failure_reason': 'DATA_FETCH_FAILED'
                 }
         else:
             # Use BirdEye overview data (preferred)
             token_data = token_overview
 
-        # Check age requirements (both minimum and maximum)
+        # Age already verified in Phase 3 (72h-180d window) - no need to re-check
+        # Extract age for reporting purposes only
         age = token_data.get('age_hours', 0)
-        if age < self.min_age_hours:
-            return {
-                'token_address': token_address,
-                'revival_score': 0.0,
-                'error': f'Token age {age:.1f}h below minimum {self.min_age_hours}h'
-            }
+        symbol = token_data.get('symbol', 'Unknown')
 
-        if self.max_age_hours and age > self.max_age_hours:
-            return {
-                'token_address': token_address,
-                'revival_score': 0.0,
-                'error': f'Token age {age:.1f}h above maximum {self.max_age_hours}h ({self.max_age_hours/24:.0f} days)'
-            }
-
-        # Check liquidity requirement
+        # Liquidity check removed - already handled in Phase 2 pre-filter
         liquidity = token_data.get('liquidity_usd', 0)
-        if liquidity < self.min_liquidity:
-            return {
-                'token_address': token_address,
-                'revival_score': 0.0,
-                'error': f'Liquidity ${liquidity:.0f} below minimum ${self.min_liquidity}'
-            }
 
         # Check holder distribution (safety check before analysis)
         is_safe, holder_details = self.check_holder_distribution(token_address)
         if not is_safe:
+            top_10_pct = holder_details.get("top_10_percentage", 0)
+            print(colored(f"  ❌ FAILED HOLDER CHECK: {symbol} ({token_address[:44]}) - Top 10 hold {top_10_pct:.1f}% > 30% max", "red"))
             return {
                 'token_address': token_address,
+                'symbol': symbol,
                 'revival_score': 0.0,
-                'error': f'Unsafe holder distribution: Top 10 hold {holder_details.get("top_10_percentage", 0):.1f}%'
+                'error': f'Unsafe holder distribution: Top 10 hold {top_10_pct:.1f}%',
+                'failure_reason': 'HIGH_CONCENTRATION'
             }
 
         # Analyze price pattern
@@ -518,18 +636,24 @@ class RevivalDetectorAgent:
         # Check smart money
         smart_score, smart_details = self.check_smart_money(token_address)
 
-        # Calculate volume score from DexScreener data
+        # Calculate volume score from token data
         volume_score = 0.0
         if token_data.get('volume_24h', 0) > 50000:  # $50K volume (sustained activity)
             volume_score += 0.5
         if token_data.get('buys_24h', 0) > token_data.get('sells_24h', 0):  # More buys than sells
             volume_score += 0.5
 
-        # Calculate final revival score (weighted average)
+        # Calculate social sentiment score from BirdEye metrics
+        social_score = self.calculate_social_sentiment_score(token_data)
+
+        # Calculate final revival score (REBALANCED WEIGHTS from config)
+        from src.config import PRICE_PATTERN_WEIGHT, SMART_MONEY_WEIGHT, VOLUME_WEIGHT, SOCIAL_SENTIMENT_WEIGHT
+
         revival_score = (
-            price_score * 0.5 +      # 50% weight on price pattern
-            smart_score * 0.3 +      # 30% weight on smart money
-            volume_score * 0.2       # 20% weight on volume
+            price_score * PRICE_PATTERN_WEIGHT +          # 60% weight on price pattern (increased)
+            smart_score * SMART_MONEY_WEIGHT +            # 15% weight on smart money (reduced from 30%)
+            volume_score * VOLUME_WEIGHT +                # 15% weight on volume (reduced from 20%)
+            social_score * SOCIAL_SENTIMENT_WEIGHT        # 10% weight on social sentiment (NEW)
         )
 
         result = {
@@ -547,6 +671,7 @@ class RevivalDetectorAgent:
             'price_score': price_score,
             'smart_score': smart_score,
             'volume_score': volume_score,
+            'social_score': social_score,
             'price_details': price_details,
             'smart_details': smart_details,
             'holder_details': holder_details,
@@ -554,9 +679,23 @@ class RevivalDetectorAgent:
             'timestamp': datetime.now().isoformat()
         }
 
-        # Print summary
-        print(colored(f"  ✅ {token_data.get('token_symbol', 'Unknown')} Revival Score: {revival_score:.2f}", "green"))
-        print(colored(f"     Price: {price_score:.2f} | Smart: {smart_score:.2f} | Volume: {volume_score:.2f}", "white"))
+        # Print summary with component scores for ALL tokens (pass or fail)
+        if revival_score >= 0.4:  # Passing score
+            print(colored(f"  ✅ {token_data.get('token_symbol', 'Unknown')} Revival Score: {revival_score:.2f} - PASSED", "green"))
+        else:  # Failing score
+            print(colored(f"  ❌ {token_data.get('token_symbol', 'Unknown')} Revival Score: {revival_score:.2f} - FAILED", "red"))
+            # Determine why it failed
+            if price_score < 0.25:
+                result['failure_reason'] = 'WEAK_PRICE_PATTERN'
+            elif smart_score < 0.2:
+                result['failure_reason'] = 'NO_SMART_MONEY'
+            elif volume_score < 0.2:
+                result['failure_reason'] = 'LOW_VOLUME'
+            else:
+                result['failure_reason'] = 'LOW_OVERALL_SCORE'
+
+        # Always print component scores
+        print(colored(f"     Price: {price_score:.2f} | Smart: {smart_score:.2f} | Volume: {volume_score:.2f} | Social: {social_score:.2f}", "white"))
 
         return result
 

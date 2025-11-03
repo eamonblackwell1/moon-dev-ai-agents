@@ -95,16 +95,71 @@ SLEEP_BETWEEN_RUNS_MINUTES = 15  # How long to sleep between agent runs 🕒
 # in our nice_funcs in token over view we look for minimum trades last hour
 MIN_TRADES_LAST_HOUR = 2
 
-# Revival Scanner Settings 🔄
-BIRDEYE_TOKENS_PER_SORT = 200  # Tokens to fetch per sorting strategy (uses 4 API calls with offset)
-BIRDEYE_TOKENS_PER_PAGE = 50  # Max tokens per BirdEye API call (API limit is 50, not 100)
-MIN_LIQUIDITY_PREFILTER = 20000  # $20K minimum liquidity for quick pre-filter (before age check) - LOWERED to catch more early memes
-MIN_LIQUIDITY_STRICT = 50000  # $50K minimum liquidity for strict filter (after age check) - LOWERED from $80K
-MIN_VOLUME_1H = 15000  # $15K minimum 1-hour volume - LOWERED from $20K to catch more opportunities
-MIN_AGE_HOURS = 24  # Minimum token age in hours
-MAX_AGE_HOURS = 4320  # Maximum token age in hours (180 days / 6 months) - prevents analyzing years-old tokens
-MAX_MARKET_CAP = 20_000_000  # $20M maximum market cap (we want room to grow)
+# Revival Scanner Settings 🔄 (Single-Pass Top 2000 Strategy)
+BIRDEYE_TOKENS_PER_SORT = 2000  # Total tokens to fetch (top 2000 by liquidity - optimized for revival trading)
+BIRDEYE_TOKENS_PER_PAGE = 50  # Max tokens per BirdEye API call (API limit is 50, NOT 100)
+BIRDEYE_USE_NATIVE_MEME_LIST = True  # Use native /defi/v3/token/meme/list (guarantees pure memecoins)
+MIN_LIQUIDITY_PREFILTER = 20000  # $20K minimum liquidity (Phase 2 - BirdEye filter)
+MIN_LIQUIDITY_STRICT = 50000  # $50K minimum liquidity (DEPRECATED - no longer used, kept for backward compatibility)
+MIN_VOLUME_1H = 500  # $500 minimum 1-hour volume (Phase 2 - applied via 24h volume estimation = $12K/day)
+MIN_AGE_HOURS = 72  # Minimum token age in hours (Phase 3 - 3 days, avoid early pump chaos)
+MAX_AGE_HOURS = 4320  # Maximum token age in hours (Phase 3 - 180 days / 6 months)
+MAX_MARKET_CAP = 30_000_000  # $30M maximum market cap (Phase 2 - BirdEye filter)
 
+# Social Sentiment Settings 📱
+MIN_UNIQUE_WALLETS_24H = 100  # Minimum unique wallets for community legitimacy
+MIN_WATCHLIST_COUNT = 50  # Minimum watchlist count for social interest
+HOLDER_CONCENTRATION_THRESHOLD = 30.0  # Max % that top 10 holders can own (reduced from 70% for safety)
+
+# Revival Pattern Scoring Weights ⚖️
+PRICE_PATTERN_WEIGHT = 0.60  # 60% - Price dump-floor-recovery pattern (most important)
+SMART_MONEY_WEIGHT = 0.15  # 15% - Whale wallet accumulation (reduced from 30%)
+VOLUME_WEIGHT = 0.15  # 15% - Volume patterns and velocity
+SOCIAL_SENTIMENT_WEIGHT = 0.10  # 10% - BirdEye social metrics (holder growth, watchlist, etc.)
+
+# Paper Trading Settings 📊
+PAPER_TRADING_ENABLED = True  # Enable paper trading simulation
+PAPER_TRADING_INITIAL_BALANCE = 10000  # $10K starting capital
+PAPER_TRADING_POSITION_SIZE_USD = 1000  # $1K per trade
+PAPER_TRADING_MAX_POSITIONS = 10  # Max concurrent positions
+PAPER_TRADING_MIN_REVIVAL_SCORE = 0.4  # Minimum score to trade (0-1) - aligned with scanner display threshold
+
+# Paper Trading Exit Strategy 🎯
+PAPER_TRADING_STOP_LOSS_PCT = -20  # -20% stop loss
+PAPER_TRADING_TAKE_PROFIT_1_PCT = 35  # +35% first profit target
+PAPER_TRADING_TAKE_PROFIT_1_SELL_PCT = 40  # Sell 40% of position at first target
+PAPER_TRADING_TAKE_PROFIT_2_PCT = 75  # +75% second profit target
+PAPER_TRADING_TAKE_PROFIT_2_SELL_PCT = 30  # Sell 30% of position at second target
+PAPER_TRADING_MAX_HOLD_DAYS = 5  # Auto-exit after 5 days if targets not hit
+
+# Paper Trading Execution Simulation ⚙️
+PAPER_TRADING_ENTRY_SLIPPAGE_PCT = 2  # 2% slippage on entry buys
+PAPER_TRADING_PROFIT_EXIT_SLIPPAGE_PCT = 2  # 2% slippage on profit-taking exits
+PAPER_TRADING_STOP_EXIT_SLIPPAGE_PCT = 10  # 10% slippage on stop-loss exits (panic selling)
+PAPER_TRADING_JUPITER_FEE_PCT = 0.06  # 0.06% Jupiter swap fee per trade
+PAPER_TRADING_FAILED_EXIT_CHANCE = 0.05  # 5% chance of failed exit (token frozen/no liquidity)
+PAPER_TRADING_PRICE_CHECK_INTERVAL = 30  # Check prices every 30 seconds
+
+# Paper Trading Email Notifications 📧
+PAPER_TRADING_EMAIL_ENABLED = True  # Enable email notifications
+PAPER_TRADING_EMAIL_ADDRESS = ""  # Your email address (set this!)
+PAPER_TRADING_EMAIL_SMTP_SERVER = "smtp.gmail.com"  # Gmail SMTP (change if using different provider)
+PAPER_TRADING_EMAIL_SMTP_PORT = 587  # TLS port
+PAPER_TRADING_EMAIL_USERNAME = ""  # Usually same as email address
+# NOTE: Set EMAIL_PASSWORD in .env file for security (not here!)
+
+# Notification Preferences 🔔
+PAPER_TRADING_NOTIFY_POSITION_OPENED = True  # Email when position opens
+PAPER_TRADING_NOTIFY_STOP_LOSS = True  # Email when stop-loss triggers
+PAPER_TRADING_NOTIFY_TAKE_PROFIT = True  # Email when take-profit triggers
+PAPER_TRADING_NOTIFY_FAILED_EXIT = True  # Email on failed exit (CRITICAL)
+PAPER_TRADING_NOTIFY_DAILY_SUMMARY = True  # Daily summary at end of day
+PAPER_TRADING_NOTIFY_WEEKLY_REPORT = True  # Weekly performance report
+
+# Notification Timing ⏰
+PAPER_TRADING_DAILY_SUMMARY_TIME = "23:59"  # Time for daily summary (24-hour format)
+PAPER_TRADING_WEEKLY_REPORT_DAY = 6  # Day of week for weekly report (0=Monday, 6=Sunday)
+PAPER_TRADING_WEEKLY_REPORT_TIME = "20:00"  # Time for weekly report (24-hour format)
 
 # Real-Time Clips Agent Settings 🎬
 REALTIME_CLIPS_ENABLED = True

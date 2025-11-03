@@ -3,633 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔄 Moon Dev's Revival Scanner</title>
+    <title>Phoenix - Meme Coin Scanner</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        header {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            color: #667eea;
-            margin-bottom: 10px;
-        }
-
-        .subtitle {
-            color: #666;
-            font-size: 1.1rem;
-        }
-
-        .controls {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-
-        .btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 10px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-weight: 600;
-        }
-
-        .btn:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn:active {
-            transform: translateY(0);
-        }
-
-        .btn-success {
-            background: #48bb78;
-        }
-
-        .btn-success:hover {
-            background: #38a169;
-        }
-
-        .btn-danger {
-            background: #f56565;
-        }
-
-        .btn-danger:hover {
-            background: #e53e3e;
-        }
-
-        .btn:disabled {
-            background: #cbd5e0;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: 600;
-            font-size: 0.9rem;
-        }
-
-        .status-running {
-            background: #48bb78;
-            color: white;
-        }
-
-        .status-stopped {
-            background: #cbd5e0;
-            color: #4a5568;
-        }
-
-        .status-error {
-            background: #f56565;
-            color: white;
-        }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stat-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .stat-label {
-            color: #718096;
-            font-size: 0.9rem;
-            margin-bottom: 5px;
-        }
-
-        .stat-value {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #2d3748;
-        }
-
-        .results-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-
-        .token-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
-            border-left: 5px solid #cbd5e0;
-        }
-
-        .token-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-        }
-
-        .token-card.high-priority {
-            border-left-color: #f56565;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(245, 101, 101, 0.05));
-        }
-
-        .token-card.medium-priority {
-            border-left-color: #ed8936;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(237, 137, 54, 0.05));
-        }
-
-        .token-card.low-priority {
-            border-left-color: #48bb78;
-        }
-
-        .token-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 15px;
-        }
-
-        .token-symbol {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #2d3748;
-        }
-
-        .token-name {
-            font-size: 0.9rem;
-            color: #718096;
-        }
-
-        .revival-score {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 1.2rem;
-        }
-
-        .token-metrics {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 15px;
-        }
-
-        .metric {
-            background: #f7fafc;
-            padding: 10px;
-            border-radius: 8px;
-        }
-
-        .metric-label {
-            font-size: 0.75rem;
-            color: #718096;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .metric-value {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: #2d3748;
-            margin-top: 3px;
-        }
-
-        .token-actions {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e2e8f0;
-        }
-
-        .link-btn {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-        }
-
-        .link-btn:hover {
-            background: #5568d3;
-            transform: translateX(3px);
-        }
-
-        .empty-state {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 60px;
-            text-align: center;
-            color: #718096;
-        }
-
-        .empty-state-icon {
-            font-size: 4rem;
-            margin-bottom: 20px;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: white;
-            font-size: 1.2rem;
-        }
-
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid white;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .priority-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .priority-high {
-            background: #fed7d7;
-            color: #c53030;
-        }
-
-        .priority-medium {
-            background: #feebc8;
-            color: #c05621;
-        }
-
-        .priority-low {
-            background: #c6f6d5;
-            color: #22543d;
-        }
-
-        .sub-scores {
-            display: flex;
-            gap: 8px;
-            margin-top: 10px;
-        }
-
-        .sub-score {
-            flex: 1;
-            background: #edf2f7;
-            padding: 8px;
-            border-radius: 6px;
-            text-align: center;
-        }
-
-        .sub-score-label {
-            font-size: 0.7rem;
-            color: #718096;
-        }
-
-        .sub-score-value {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .refresh-btn {
-            margin-left: auto;
-        }
-
-        /* Progress Section */
-        .progress-section {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        .progress-bar-container {
-            background: #e2e8f0;
-            border-radius: 10px;
-            height: 30px;
-            overflow: hidden;
-            margin: 15px 0;
-        }
-
-        .progress-bar {
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            height: 100%;
-            transition: width 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-            font-size: 0.9rem;
-        }
-
-        .phase-indicator {
-            display: flex;
-            gap: 10px;
-            margin: 15px 0;
-        }
-
-        .phase-step {
-            flex: 1;
-            background: #e2e8f0;
-            padding: 10px;
-            border-radius: 8px;
-            text-align: center;
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #718096;
-            transition: all 0.3s ease;
-        }
-
-        .phase-step.completed {
-            background: #48bb78;
-            color: white;
-        }
-
-        .phase-step.active {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
-        }
-
-        /* Activity Feed */
-        .activity-feed {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            max-height: 400px;
-        }
-
-        .activity-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .activity-header h3 {
-            margin: 0;
-            color: #2d3748;
-        }
-
-        .activity-list {
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 0.85rem;
-        }
-
-        .activity-item {
-            padding: 8px;
-            margin-bottom: 5px;
-            border-left: 3px solid #cbd5e0;
-            background: #f7fafc;
-            border-radius: 4px;
-        }
-
-        .activity-item.success {
-            border-left-color: #48bb78;
-            background: #f0fff4;
-        }
-
-        .activity-item.error {
-            border-left-color: #f56565;
-            background: #fff5f5;
-        }
-
-        .activity-item.warning {
-            border-left-color: #ed8936;
-            background: #fffaf0;
-        }
-
-        .activity-timestamp {
-            color: #a0aec0;
-            font-size: 0.75rem;
-            margin-right: 10px;
-        }
-
-        .funnel-stats {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        .funnel-row {
-            display: flex;
-            align-items: center;
-            padding: 15px;
-            margin-bottom: 10px;
-            background: linear-gradient(to right, #f7fafc, #ffffff);
-            border-radius: 10px;
-            border-left: 5px solid #cbd5e0;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .funnel-row:hover {
-            transform: translateX(5px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        .funnel-row.active {
-            background: linear-gradient(to right, #e6fffa, #f0fff4);
-            border-left-color: #38b2ac;
-        }
-
-        .funnel-row.has-tokens {
-            border-left-color: #48bb78;
-        }
-
-        .funnel-row.no-tokens {
-            background: #f7fafc;
-            border-left-color: #e2e8f0;
-            opacity: 0.6;
-        }
-
-        .funnel-phase-num {
-            background: #667eea;
-            color: white;
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 1.1rem;
-            margin-right: 15px;
-            flex-shrink: 0;
-        }
-
-        .funnel-info {
-            flex: 1;
-        }
-
-        .funnel-label {
-            font-weight: 700;
-            color: #2d3748;
-            font-size: 1.1rem;
-            margin-bottom: 3px;
-        }
-
-        .funnel-description {
-            font-size: 0.85rem;
-            color: #718096;
-        }
-
-        .funnel-count {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #667eea;
-            margin: 0 20px 0 15px;
-            min-width: 80px;
-            text-align: right;
-        }
-
-        .funnel-arrow {
-            color: #a0aec0;
-            font-size: 1.5rem;
-            margin-left: 10px;
-        }
-
-        .funnel-samples {
-            margin-top: 10px;
-            padding: 15px;
-            background: #edf2f7;
-            border-radius: 8px;
-            display: none;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .funnel-samples.expanded {
-            display: block;
-        }
-
-        .sample-token {
-            background: white;
-            padding: 10px;
-            margin-bottom: 8px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-family: 'Monaco', 'Courier New', monospace;
-            border-left: 3px solid #667eea;
-        }
-
-        .sample-token strong {
-            color: #2d3748;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-
-        .conversion-rate {
-            background: #edf2f7;
-            color: #4a5568;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-left: 10px;
-        }
-
-        @media (max-width: 768px) {
-            h1 {
-                font-size: 1.8rem;
-            }
-
-            .results-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .btn {
-                width: 100%;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/phoenix.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
         <!-- Header -->
-        <header>
-            <h1>🔄 Revival Scanner Dashboard</h1>
-            <p class="subtitle">Finding "second life" opportunities in 24-48hr old meme coins</p>
+        <header class="header-section" style="padding: 24px 0 16px 0;">
+            <div style="padding-left: 8px;">
+                <h1 style="font-size: 4rem; font-weight: 800; color: #ff8c42; margin: 0 0 8px 0; letter-spacing: 2px;">PHNX</h1>
+                <div class="user-greeting">Hello, <span>Eamon</span></div>
+            </div>
         </header>
 
         <!-- Controls -->
         <div class="controls">
             <button class="btn btn-success" id="startBtn" onclick="startScanner()">
-                ▶️ Start Auto Scan
+                Start Auto Scan
             </button>
             <button class="btn btn-danger" id="stopBtn" onclick="stopScanner()" disabled>
-                ⏹️ Stop Scanner
+                Stop Scanner
             </button>
-            <button class="btn" onclick="scanOnce()">
-                🔄 Scan Once
+            <button class="btn btn-primary" onclick="scanOnce()">
+                Scan Once
             </button>
-            <button class="btn refresh-btn" onclick="refreshResults()">
-                ↻ Refresh Results
+            <button class="btn" onclick="refreshResults()">
+                Refresh Results
             </button>
             <span id="statusBadge" class="status-badge status-stopped">STOPPED</span>
         </div>
@@ -637,19 +40,19 @@
         <!-- Stats -->
         <div class="stats">
             <div class="stat-card">
-                <div class="stat-label">Total Scans</div>
+                <div class="stat-label">📊 Total Scans</div>
                 <div class="stat-value" id="scanCount">0</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Opportunities Found</div>
+                <div class="stat-label">🎯 Opportunities Found</div>
                 <div class="stat-value" id="opportunityCount">0</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">High Priority</div>
+                <div class="stat-label">🔥 High Priority</div>
                 <div class="stat-value" id="highPriorityCount">0</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Last Scan</div>
+                <div class="stat-label">⏰ Last Scan</div>
                 <div class="stat-value" id="lastScan" style="font-size: 1.2rem;">Never</div>
             </div>
         </div>
@@ -661,20 +64,20 @@
                 <div class="phase-step" id="phase1">1. Discovery</div>
                 <div class="phase-step" id="phase2">2. Pre-Filter</div>
                 <div class="phase-step" id="phase3">3. Age Check</div>
-                <div class="phase-step" id="phase4">4. Market</div>
-                <div class="phase-step" id="phase5">5. Social</div>
+                <div class="phase-step" id="phase4">4. Security</div>
+                <div class="phase-step" id="phase5">5. Revival</div>
             </div>
             <div class="progress-bar-container">
                 <div class="progress-bar" id="progressBar" style="width: 0%">0%</div>
             </div>
-            <p id="progressMessage" style="color: #718096; margin-top: 10px;">Initializing scan...</p>
+            <p class="progress-message" id="progressMessage">Initializing scan...</p>
         </div>
 
         <!-- Activity Feed -->
         <div class="activity-feed">
             <div class="activity-header">
                 <h3>Live Activity</h3>
-                <button class="btn" onclick="clearActivity()" style="padding: 6px 12px; font-size: 0.85rem;">Clear</button>
+                <button class="btn" onclick="clearActivity()">Clear</button>
             </div>
             <div class="activity-list" id="activityList">
                 <div class="activity-item">
@@ -686,23 +89,109 @@
 
         <!-- Phase Funnel View -->
         <div class="funnel-stats">
-            <div class="activity-header" style="margin-bottom: 20px;">
-                <h3>📊 Scanning Pipeline Funnel</h3>
-                <button class="btn" onclick="refreshPhases()" style="padding: 6px 12px; font-size: 0.85rem;">↻ Refresh</button>
+            <div class="activity-header">
+                <h3>Scanning Pipeline Funnel</h3>
+                <button class="btn" onclick="refreshPhases()">Refresh</button>
             </div>
             <div id="phaseFunnel">
-                <div style="text-align: center; padding: 40px; color: #a0aec0;">
+                <div class="empty-state">
                     <p>Run a scan to see the token funnel through each phase</p>
                 </div>
             </div>
         </div>
 
-        <!-- Results -->
-        <div id="resultsContainer">
-            <div class="empty-state">
-                <div class="empty-state-icon">🔍</div>
-                <h2>No Results Yet</h2>
-                <p>Click "Scan Once" to start finding revival opportunities!</p>
+        <!-- Download CSV Button -->
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="downloadPhase5CSV()" class="btn btn-success" style="padding: 12px 30px; font-size: 16px; border-radius: 8px; cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: all 0.3s ease;">
+                📥 Download Phase 5 CSV
+            </button>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-navigation" style="display: flex; gap: 10px; margin: 20px 0; border-bottom: 2px solid #2d3748;">
+            <button class="tab-btn active" onclick="switchTab('scanner')" id="scannerTab" style="padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 600; transition: all 0.3s;">
+                🔍 Scanner Results
+            </button>
+            <button class="tab-btn" onclick="switchTab('paper')" id="paperTab" style="padding: 12px 24px; background: #2d3748; color: #a0aec0; border: none; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 600; transition: all 0.3s;">
+                💰 Paper Trading
+            </button>
+        </div>
+
+        <!-- Scanner Results Tab -->
+        <div id="scannerTabContent" class="tab-content">
+            <div id="resultsContainer">
+                <div class="empty-state">
+                    <div class="empty-state-icon">🔍</div>
+                    <h2>No Results Yet</h2>
+                    <p>Click "Scan Once" to start finding revival opportunities!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paper Trading Tab -->
+        <div id="paperTabContent" class="tab-content" style="display: none;">
+            <!-- Portfolio Summary -->
+            <div class="stats" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-label">💰 Total Value</div>
+                    <div class="stat-value" id="paperTotalValue">$10,000</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">💵 Cash Balance</div>
+                    <div class="stat-value" id="paperCash">$10,000</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">📈 Total P&L</div>
+                    <div class="stat-value" id="paperPnL">$0.00</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">📊 Open Positions</div>
+                    <div class="stat-value" id="paperPositions">0</div>
+                </div>
+            </div>
+
+            <!-- Performance Metrics -->
+            <div class="activity-feed" style="margin-bottom: 20px;">
+                <div class="activity-header">
+                    <h3>Performance Metrics</h3>
+                    <button class="btn" onclick="refreshPaperTrading()">Refresh</button>
+                </div>
+                <div style="padding: 20px; background: #1a202c; border-radius: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div><strong>Win Rate:</strong> <span id="winRate">0%</span></div>
+                        <div><strong>Total Trades:</strong> <span id="totalTrades">0</span></div>
+                        <div><strong>Profit Factor:</strong> <span id="profitFactor">0.00</span></div>
+                        <div><strong>Avg Gain:</strong> <span id="avgGain">0%</span></div>
+                        <div><strong>Avg Loss:</strong> <span id="avgLoss">0%</span></div>
+                        <div><strong>Sharpe Ratio:</strong> <span id="sharpeRatio">0.00</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Open Positions -->
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Open Positions</h3>
+                    <button class="btn" onclick="loadPaperPositions()">Refresh</button>
+                </div>
+                <div id="paperPositionsList" style="padding: 20px;">
+                    <div class="empty-state">
+                        <p>No open positions</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trade History -->
+            <div class="activity-feed" style="margin-top: 20px;">
+                <div class="activity-header">
+                    <h3>Trade History</h3>
+                    <button class="btn" onclick="loadPaperTrades()">Refresh</button>
+                </div>
+                <div id="paperTradesList" style="padding: 20px;">
+                    <div class="empty-state">
+                        <p>No trades yet</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -904,31 +393,24 @@
             const address = token.token_address || '';
             const shortAddress = address ? `${address.slice(0, 4)}...${address.slice(-4)}` : 'N/A';
 
-            // Social links
-            const twitterLink = token.twitter ? `<a href="${token.twitter}" target="_blank" style="margin-right: 10px;">🐦 Twitter</a>` : '';
-            const telegramLink = token.telegram ? `<a href="${token.telegram}" target="_blank" style="margin-right: 10px;">📱 Telegram</a>` : '';
-            const websiteLink = token.website ? `<a href="${token.website}" target="_blank" style="margin-right: 10px;">🌐 Website</a>` : '';
-
             return `
                 <div class="token-card ${priority}-priority">
                     <div class="token-header">
                         <div>
                             <div class="token-symbol">${token.token_symbol || 'Unknown'}</div>
                             <div class="token-name">${token.token_name || 'Unknown Token'}</div>
-                            <span class="priority-badge priority-${priority}">${priorityLabel}</span>
                         </div>
-                        <div class="revival-score">${score.toFixed(2)}</div>
+                        <span class="priority-badge priority-${priority}">${priorityLabel}</span>
+                    </div>
+
+                    <div class="revival-score">
+                        <div class="score-label">Revival Score</div>
+                        <div class="score-value">${score.toFixed(2)}</div>
                     </div>
 
                     <!-- Contract Address -->
-                    <div style="margin: 10px 0; padding: 8px; background: #edf2f7; border-radius: 6px; font-family: monospace; font-size: 0.85rem;">
-                        <strong>Contract:</strong>
-                        <span style="cursor: pointer;" onclick="copyToClipboard('${address}')" title="Click to copy full address">
-                            ${shortAddress}
-                        </span>
-                        <button onclick="copyToClipboard('${address}')" style="margin-left: 8px; padding: 2px 8px; font-size: 0.75rem; border: none; background: #667eea; color: white; border-radius: 4px; cursor: pointer;">
-                            📋 Copy
-                        </button>
+                    <div class="token-address" onclick="copyToClipboard('${address}')" title="Click to copy">
+                        ${shortAddress}
                     </div>
 
                     <div class="sub-scores">
@@ -966,12 +448,12 @@
                     </div>
 
                     <div class="token-actions">
-                        <a href="${token.dexscreener_url || '#'}" target="_blank" class="link-btn" style="margin-right: 8px; margin-bottom: 8px;">
-                            📊 DexScreener
+                        <a href="${token.dexscreener_url || '#'}" target="_blank" class="action-link">
+                            DexScreener
                         </a>
-                        ${twitterLink}
-                        ${telegramLink}
-                        ${websiteLink}
+                        ${token.twitter ? `<a href="${token.twitter}" target="_blank" class="action-link">Twitter</a>` : ''}
+                        ${token.telegram ? `<a href="${token.telegram}" target="_blank" class="action-link">Telegram</a>` : ''}
+                        ${token.website ? `<a href="${token.website}" target="_blank" class="action-link">Website</a>` : ''}
                     </div>
                 </div>
             `;
@@ -1085,6 +567,13 @@
             loadResults();
         }
 
+        // Download Phase 5 CSV
+        function downloadPhase5CSV() {
+            // Simply navigate to the download endpoint
+            // The browser will automatically download the file
+            window.location.href = '/api/download/phase5/latest';
+        }
+
         // Load phase funnel data
         async function loadPhases() {
             try {
@@ -1121,15 +610,17 @@
                 const phaseClass = hasTokens ? 'has-tokens' : 'no-tokens';
 
                 html += `
-                    <div class="funnel-row ${phaseClass}" onclick="toggleSamples(${phase.phase})" id="phase-row-${phase.phase}">
-                        <div class="funnel-phase-num">${phase.phase}</div>
-                        <div class="funnel-info">
-                            <div class="funnel-label">${phase.name}</div>
-                            <div class="funnel-description">${phase.description}</div>
+                    <div class="phase-row ${phaseClass}" onclick="toggleSamples(${phase.phase})" id="phase-row-${phase.phase}">
+                        <div class="phase-main">
+                            <div class="phase-info">
+                                <div class="phase-name">Phase ${phase.phase}: ${phase.name}</div>
+                                <div class="phase-description">${phase.description}</div>
+                            </div>
+                            <div class="phase-stats-info">
+                                <div class="token-count">${phase.count.toLocaleString()}</div>
+                                ${idx > 0 ? `<div class="conversion-rate">${conversionRate}% conversion</div>` : ''}
+                            </div>
                         </div>
-                        <div class="funnel-count">${phase.count.toLocaleString()}</div>
-                        ${idx > 0 ? `<div class="conversion-rate">${conversionRate}%</div>` : ''}
-                        <div class="funnel-arrow">▼</div>
                     </div>
                     <div class="funnel-samples" id="samples-${phase.phase}">
                         ${renderSamples(phase)}
@@ -1214,6 +705,223 @@
         // Auto-refresh every minute
         setInterval(updateStatus, 60000);
         setInterval(loadPhases, 30000); // Refresh phases every 30 seconds
+
+        // Auto-refresh paper trading every 2 minutes (when tab is active)
+        let paperTradingRefreshInterval = null;
+
+        function startPaperTradingAutoRefresh() {
+            if (!paperTradingRefreshInterval) {
+                paperTradingRefreshInterval = setInterval(() => {
+                    const paperContent = document.getElementById('paperTabContent');
+                    if (paperContent && paperContent.style.display !== 'none') {
+                        refreshPaperTrading();
+                    }
+                }, 120000); // 2 minutes
+            }
+        }
+
+        function stopPaperTradingAutoRefresh() {
+            if (paperTradingRefreshInterval) {
+                clearInterval(paperTradingRefreshInterval);
+                paperTradingRefreshInterval = null;
+            }
+        }
+
+        // ==================== PAPER TRADING FUNCTIONS ====================
+
+        // Switch tabs
+        function switchTab(tab) {
+            // Update tab buttons
+            const scannerTab = document.getElementById('scannerTab');
+            const paperTab = document.getElementById('paperTab');
+            const scannerContent = document.getElementById('scannerTabContent');
+            const paperContent = document.getElementById('paperTabContent');
+
+            if (tab === 'scanner') {
+                scannerTab.style.background = '#667eea';
+                scannerTab.style.color = 'white';
+                paperTab.style.background = '#2d3748';
+                paperTab.style.color = '#a0aec0';
+                scannerContent.style.display = 'block';
+                paperContent.style.display = 'none';
+                stopPaperTradingAutoRefresh();
+            } else {
+                scannerTab.style.background = '#2d3748';
+                scannerTab.style.color = '#a0aec0';
+                paperTab.style.background = '#667eea';
+                paperTab.style.color = 'white';
+                scannerContent.style.display = 'none';
+                paperContent.style.display = 'block';
+
+                // Load paper trading data when tab opens
+                refreshPaperTrading();
+                startPaperTradingAutoRefresh();
+            }
+        }
+
+        // Refresh all paper trading data
+        async function refreshPaperTrading() {
+            await loadPaperPortfolio();
+            await loadPaperMetrics();
+            await loadPaperPositions();
+            await loadPaperTrades();
+        }
+
+        // Load portfolio summary
+        async function loadPaperPortfolio() {
+            try {
+                const response = await fetch('/api/paper/portfolio');
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    const portfolio = data.portfolio;
+                    document.getElementById('paperTotalValue').textContent = `$${portfolio.total_value_usd.toFixed(2)}`;
+                    document.getElementById('paperCash').textContent = `$${portfolio.cash_usd.toFixed(2)}`;
+
+                    const pnlElement = document.getElementById('paperPnL');
+                    const pnlValue = portfolio.total_pnl_usd;
+                    pnlElement.textContent = `$${pnlValue.toFixed(2)} (${portfolio.total_pnl_pct.toFixed(2)}%)`;
+                    pnlElement.style.color = pnlValue >= 0 ? '#48bb78' : '#f56565';
+
+                    document.getElementById('paperPositions').textContent = portfolio.open_positions_count;
+                }
+            } catch (error) {
+                console.error('Error loading paper portfolio:', error);
+            }
+        }
+
+        // Load performance metrics
+        async function loadPaperMetrics() {
+            try {
+                const response = await fetch('/api/paper/metrics');
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    const metrics = data.metrics;
+                    document.getElementById('winRate').textContent = `${metrics.win_rate.toFixed(1)}%`;
+                    document.getElementById('totalTrades').textContent = metrics.total_trades;
+                    document.getElementById('profitFactor').textContent = metrics.profit_factor.toFixed(2);
+                    document.getElementById('avgGain').textContent = `${metrics.avg_gain_pct.toFixed(2)}%`;
+                    document.getElementById('avgLoss').textContent = `${metrics.avg_loss_pct.toFixed(2)}%`;
+                    document.getElementById('sharpeRatio').textContent = metrics.sharpe_ratio.toFixed(2);
+                }
+            } catch (error) {
+                console.error('Error loading paper metrics:', error);
+            }
+        }
+
+        // Load open positions
+        async function loadPaperPositions() {
+            try {
+                const response = await fetch('/api/paper/positions');
+                const data = await response.json();
+
+                const container = document.getElementById('paperPositionsList');
+
+                if (data.status === 'success' && data.positions.length > 0) {
+                    let html = '<table style="width: 100%; border-collapse: collapse;">';
+                    html += '<thead style="background: #2d3748;"><tr>';
+                    html += '<th style="padding: 10px; text-align: left;">Symbol</th>';
+                    html += '<th style="padding: 10px; text-align: right;">Entry</th>';
+                    html += '<th style="padding: 10px; text-align: right;">Current</th>';
+                    html += '<th style="padding: 10px; text-align: right;">P&L</th>';
+                    html += '<th style="padding: 10px; text-align: right;">Size</th>';
+                    html += '<th style="padding: 10px; text-align: right;">Remaining</th>';
+                    html += '</tr></thead><tbody>';
+
+                    data.positions.forEach(pos => {
+                        const pnlColor = pos.current_pnl_pct >= 0 ? '#48bb78' : '#f56565';
+                        html += `<tr style="border-bottom: 1px solid #2d3748;">`;
+                        html += `<td style="padding: 10px;">${pos.symbol}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${parseFloat(pos.entry_price).toFixed(8)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${parseFloat(pos.current_price).toFixed(8)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right; color: ${pnlColor};">${pos.current_pnl_pct.toFixed(2)}%</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${parseFloat(pos.quantity_usd).toFixed(2)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">${parseFloat(pos.remaining_pct).toFixed(0)}%</td>`;
+                        html += `</tr>`;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><p>No open positions</p></div>';
+                }
+            } catch (error) {
+                console.error('Error loading paper positions:', error);
+            }
+        }
+
+        // Track previous trades for flash detection
+        let previousTradeIds = new Set();
+
+        // Load trade history
+        async function loadPaperTrades() {
+            try {
+                const response = await fetch('/api/paper/trades?per_page=20');
+                const data = await response.json();
+
+                const container = document.getElementById('paperTradesList');
+
+                if (data.status === 'success' && data.trades.length > 0) {
+                    let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
+                    html += '<thead style="background: #2d3748;"><tr>';
+                    html += '<th style="padding: 8px; text-align: left;">Symbol</th>';
+                    html += '<th style="padding: 8px; text-align: right;">Entry</th>';
+                    html += '<th style="padding: 8px; text-align: right;">Exit</th>';
+                    html += '<th style="padding: 8px; text-align: right;">P&L</th>';
+                    html += '<th style="padding: 8px; text-align: center;">Exit Type</th>';
+                    html += '<th style="padding: 8px; text-align: right;">Hold Time</th>';
+                    html += '</tr></thead><tbody>';
+
+                    const newTradeIds = new Set();
+                    data.trades.forEach(trade => {
+                        const pnlColor = trade.pnl_pct >= 0 ? '#48bb78' : '#f56565';
+                        newTradeIds.add(trade.id);
+
+                        // Check if this is a new trade (not in previous load)
+                        const isNewTrade = !previousTradeIds.has(trade.id);
+                        let flashClass = '';
+                        if (isNewTrade && trade.pnl_pct >= 0) {
+                            flashClass = ' flash-profit';
+                        } else if (isNewTrade && trade.pnl_pct < 0) {
+                            flashClass = ' flash-loss';
+                        }
+
+                        // Determine badge class based on exit type
+                        let badgeClass = 'exit-badge';
+                        if (trade.exit_type.includes('stop_loss')) {
+                            badgeClass += ' stop-loss';
+                        } else if (trade.exit_type.includes('take_profit')) {
+                            badgeClass += ' take-profit';
+                        } else if (trade.exit_type === 'failed_exit') {
+                            badgeClass += ' failed';
+                        } else if (trade.exit_type === 'max_hold') {
+                            badgeClass += ' expired';
+                        }
+
+                        html += `<tr class="${flashClass}" style="border-bottom: 1px solid #2d3748;">`;
+                        html += `<td style="padding: 8px;">${trade.symbol}</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">$${parseFloat(trade.entry_price).toFixed(8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">$${parseFloat(trade.exit_price).toFixed(8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${trade.pnl_pct.toFixed(2)}%</td>`;
+                        html += `<td style="padding: 8px; text-align: center;"><span class="${badgeClass}">${trade.exit_type.replace(/_/g, ' ')}</span></td>`;
+                        html += `<td style="padding: 8px; text-align: right;">${parseFloat(trade.hold_days).toFixed(1)}d</td>`;
+                        html += `</tr>`;
+                    });
+
+                    // Update previous trade IDs for next comparison
+                    previousTradeIds = newTradeIds;
+
+                    html += '</tbody></table>';
+                    html += `<div style="margin-top: 10px; color: #a0aec0;">Showing ${data.trades.length} of ${data.count} trades</div>`;
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><p>No trades yet</p></div>';
+                }
+            } catch (error) {
+                console.error('Error loading paper trades:', error);
+            }
+        }
     </script>
 </body>
 </html>

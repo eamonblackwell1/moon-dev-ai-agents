@@ -4,7 +4,7 @@ Beautiful web interface for the meme coin revival detection system
 Built with love by Moon Dev 🚀
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file
 from flask_cors import CORS
 import sys
 import os
@@ -45,7 +45,7 @@ scanner_state = {
     'scan_count': 0,
     'last_scan_time': None,
     'settings': {
-        'scan_interval': 7200,  # 120 minutes / 2 hours (optimized for BirdEye FREE tier)
+        'scan_interval': 3600,  # 60 minutes / 1 hour (safe for BirdEye Starter tier - uses ~36% of monthly API limit)
         'min_revival_score': 0.4,
         'auto_scan': False
     },
@@ -341,6 +341,34 @@ def get_history():
             'scans': []
         })
 
+@app.route('/api/download/phase5/latest')
+def download_latest_phase5():
+    """Download the latest Phase 5 analysis CSV"""
+    try:
+        data_dir = Path(__file__).parent / "data" / "meme_scanner"
+
+        if not data_dir.exists():
+            return jsonify({'error': 'No scan data available'}), 404
+
+        # Get the most recent phase5_analysis CSV file
+        phase5_files = sorted(data_dir.glob("phase5_analysis_*.csv"), reverse=True)
+
+        if not phase5_files:
+            return jsonify({'error': 'No Phase 5 analysis files found'}), 404
+
+        latest_file = phase5_files[0]
+
+        # Send file as download
+        return send_file(
+            latest_file,
+            as_attachment=True,
+            download_name=latest_file.name,
+            mimetype='text/csv'
+        )
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/alerts')
 def get_alerts():
     """Get recent alerts"""
@@ -370,7 +398,7 @@ def get_alerts():
 
 @app.route('/api/phases')
 def get_phases():
-    """Get token counts and samples for each phase of the scanning pipeline"""
+    """Get token counts and samples for each phase of the scanning pipeline (5-phase structure)"""
     try:
         if orchestrator is None:
             return jsonify({
@@ -381,12 +409,12 @@ def get_phases():
         phase_data = []
         phase_tokens = orchestrator.phase_tokens
 
-        # Phase 1: BirdEye Discovery
+        # Phase 1: BirdEye Discovery (Native Meme List)
         phase1 = phase_tokens.get('phase1_birdeye', [])
         phase_data.append({
             'phase': 1,
             'name': 'BirdEye Discovery',
-            'description': 'Multi-pass token collection (price change, volume, liquidity)',
+            'description': 'Native meme token list (2-pass: liquidity-sorted + sequential, ~2000 pure memecoins)',
             'count': len(phase1),
             'samples': [
                 {
@@ -399,24 +427,25 @@ def get_phases():
             ]
         })
 
-        # Phase 2: Pre-filtered
+        # Phase 2: Pre-filtered (Liquidity, Market Cap, Volume - all from BirdEye)
         phase2 = phase_tokens.get('phase2_prefiltered', [])
         phase_data.append({
             'phase': 2,
             'name': 'Pre-Filter',
-            'description': f'Liquidity >${MIN_LIQUIDITY_PREFILTER:,}, Market Cap <${MAX_MARKET_CAP:,}, Memecoins only',
+            'description': f'Liquidity >${MIN_LIQUIDITY_PREFILTER:,}, Market Cap <${MAX_MARKET_CAP:,}, Volume 1h >${MIN_VOLUME_1H:,}',
             'count': len(phase2),
             'samples': [
                 {
                     'symbol': t.get('symbol', 'Unknown'),
                     'address': t.get('address', ''),
                     'liquidity': t.get('liquidity', 0),
-                    'market_cap': t.get('market_cap', 0)
+                    'market_cap': t.get('market_cap', 0),
+                    'volume_24h': t.get('volume_24h', 0)
                 } for t in phase2[:10]
             ]
         })
 
-        # Phase 3: Age Verified
+        # Phase 3: Age Verified (Helius Blockchain)
         phase3 = phase_tokens.get('phase3_aged', [])
         phase_data.append({
             'phase': 3,
@@ -430,12 +459,12 @@ def get_phases():
             ]
         })
 
-        # Phase 4: Market Filtered
-        phase4 = phase_tokens.get('phase4_market_filtered', [])
+        # Phase 4: Security Passed
+        phase4 = phase_tokens.get('phase4_security_passed', [])
         phase_data.append({
             'phase': 4,
-            'name': 'Market Filters',
-            'description': f'Liquidity >${MIN_LIQUIDITY_STRICT:,}, 1h Volume >${MIN_VOLUME_1H:,}',
+            'name': 'Security Filter',
+            'description': 'Passed Stage 1 security checks (scam detection)',
             'count': len(phase4),
             'samples': [
                 {
@@ -444,45 +473,13 @@ def get_phases():
             ]
         })
 
-        # Phase 5: Socially Enriched
-        phase5 = phase_tokens.get('phase5_enriched', [])
+        # Phase 5: Revival Detected
+        phase5 = phase_tokens.get('phase5_revival_detected', [])
         phase_data.append({
             'phase': 5,
-            'name': 'Social Enrichment',
-            'description': 'Enriched with DexScreener social data (boosts, Twitter, Telegram)',
-            'count': len(phase5),
-            'samples': [
-                {
-                    'symbol': t.get('symbol', 'Unknown'),
-                    'address': t.get('token_address', ''),
-                    'boosts': t.get('boosts', 0),
-                    'twitter': t.get('twitter', ''),
-                    'telegram': t.get('telegram', '')
-                } for t in phase5[:10]
-            ]
-        })
-
-        # Phase 6: Security Passed
-        phase6 = phase_tokens.get('phase6_security_passed', [])
-        phase_data.append({
-            'phase': 6,
-            'name': 'Security Filter',
-            'description': 'Passed Stage 1 security checks (scam detection)',
-            'count': len(phase6),
-            'samples': [
-                {
-                    'address': t.get('address', ''),
-                } for t in phase6[:10]
-            ]
-        })
-
-        # Phase 7: Revival Detected
-        phase7 = phase_tokens.get('phase7_revival_detected', [])
-        phase_data.append({
-            'phase': 7,
             'name': 'Revival Opportunities',
             'description': 'Final opportunities with revival scores ≥0.4',
-            'count': len(phase7),
+            'count': len(phase5),
             'samples': [
                 {
                     'symbol': t.get('token_symbol', 'Unknown'),
@@ -490,13 +487,13 @@ def get_phases():
                     'revival_score': t.get('revival_score', 0),
                     'price_score': t.get('price_score', 0),
                     'smart_score': t.get('smart_score', 0)
-                } for t in phase7[:10]
+                } for t in phase5[:10]
             ]
         })
 
         return jsonify({
             'phases': phase_data,
-            'total_phases': 7
+            'total_phases': 5
         })
 
     except Exception as e:
@@ -504,6 +501,184 @@ def get_phases():
             'error': str(e),
             'phases': []
         })
+
+# ==================== PAPER TRADING API ENDPOINTS ====================
+
+# Global paper trading agent (initialized on demand)
+paper_trading_agent = None
+performance_analyzer = None
+
+def init_paper_trading():
+    """Initialize paper trading components"""
+    global paper_trading_agent, performance_analyzer
+
+    if paper_trading_agent is None:
+        from src.agents.paper_trading_agent import PaperTradingAgent
+        from src.paper_trading.performance_analyzer import PerformanceAnalyzer
+
+        paper_trading_agent = PaperTradingAgent()
+        performance_analyzer = PerformanceAnalyzer()
+        log_activity("Paper trading agent initialized", 'info')
+
+    return paper_trading_agent, performance_analyzer
+
+@app.route('/api/paper/portfolio')
+def paper_portfolio():
+    """Get current paper trading portfolio summary"""
+    try:
+        agent, analyzer = init_paper_trading()
+        summary = agent.get_portfolio_summary()
+
+        return jsonify({
+            'status': 'success',
+            'portfolio': summary
+        })
+
+    except Exception as e:
+        log_error(f"Paper trading portfolio error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/paper/positions')
+def paper_positions():
+    """Get open paper trading positions"""
+    try:
+        agent, analyzer = init_paper_trading()
+        positions = agent.get_open_positions()
+
+        return jsonify({
+            'status': 'success',
+            'positions': positions,
+            'count': len(positions)
+        })
+
+    except Exception as e:
+        log_error(f"Paper trading positions error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/paper/trades')
+def paper_trades():
+    """Get paper trading trade history"""
+    try:
+        import pandas as pd
+        from pathlib import Path
+
+        trades_file = Path(__file__).parent / 'data' / 'paper_trading' / 'trades_history.csv'
+
+        if not trades_file.exists():
+            return jsonify({
+                'status': 'success',
+                'trades': [],
+                'count': 0
+            })
+
+        trades_df = pd.read_csv(trades_file)
+
+        # Get pagination params
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+
+        # Sort by exit time (most recent first)
+        trades_df = trades_df.sort_values('exit_time', ascending=False)
+
+        # Paginate
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        page_trades = trades_df.iloc[start_idx:end_idx]
+
+        return jsonify({
+            'status': 'success',
+            'trades': page_trades.to_dict('records'),
+            'count': len(trades_df),
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (len(trades_df) + per_page - 1) // per_page
+        })
+
+    except Exception as e:
+        log_error(f"Paper trading trades error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/paper/metrics')
+def paper_metrics():
+    """Get paper trading performance metrics"""
+    try:
+        agent, analyzer = init_paper_trading()
+
+        # Check if we should regenerate metrics
+        regenerate = request.args.get('regenerate', 'false').lower() == 'true'
+
+        if regenerate:
+            metrics = analyzer.save_metrics()
+        else:
+            metrics = analyzer.load_metrics()
+
+        return jsonify({
+            'status': 'success',
+            'metrics': metrics
+        })
+
+    except Exception as e:
+        log_error(f"Paper trading metrics error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/paper/reset', methods=['POST'])
+def paper_reset():
+    """Reset paper trading to initial state"""
+    try:
+        agent, analyzer = init_paper_trading()
+        agent.reset()
+
+        log_activity("Paper trading reset", 'info')
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Paper trading reset successfully'
+        })
+
+    except Exception as e:
+        log_error(f"Paper trading reset error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/paper/close/<position_id>', methods=['POST'])
+def paper_close_position(position_id):
+    """Manually close a paper trading position"""
+    try:
+        agent, analyzer = init_paper_trading()
+        success = agent.manual_close_position(position_id)
+
+        if success:
+            log_activity(f"Manually closed position {position_id}", 'info')
+            return jsonify({
+                'status': 'success',
+                'message': 'Position closed successfully'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to close position'
+            }), 400
+
+    except Exception as e:
+        log_error(f"Paper trading close position error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 def main():
     """Run the web app"""
