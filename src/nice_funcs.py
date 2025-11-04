@@ -14,7 +14,11 @@ import time
 import json
 import numpy as np
 import datetime
-import pandas_ta as ta
+# pandas_ta is optional - only used for legacy technical indicator functions
+try:
+    import pandas_ta as ta
+except ImportError:
+    ta = None  # Not available, technical indicator functions will not work
 from datetime import datetime, timedelta
 from termcolor import colored, cprint
 import solders
