@@ -44,4 +44,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import requests; requests.get('http://localhost:8080/api/status', timeout=5)"
 
 # Run the application with gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "4", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-", "src.web_app:app"]
+# Use shell form to allow environment variable expansion
+CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 4 --timeout 300 --access-logfile - --error-logfile - src.web_app:app
