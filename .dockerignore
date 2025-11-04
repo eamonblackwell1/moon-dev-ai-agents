@@ -1,0 +1,89 @@
+# Revival Scanner - Docker Ignore File
+# Excludes unnecessary files from Docker image
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+README.md
+CLAUDE.md
+REVIVAL_SCANNER_PRD.md
+WEBAPP_README.md
+DASHBOARD_GUIDE.md
+COMPLETE_SYSTEM_GUIDE.md
+QUICK_START_WEBAPP.md
+ARCHIVED_*.md
+*.md
+
+# Test files
+test_*.py
+*_test.py
+tests/
+.pytest_cache/
+
+# Local data files (will use volume mount instead)
+src/data/paper_trading/*.csv
+src/data/meme_scanner/*.csv
+src/data/security_filter/*.json
+src/data/ohlcv/*
+src/data/token_age_cache.json
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Jupyter Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Backup files
+*.bak
+*.backup
+
+# Large dependencies not needed for Revival Scanner
+# (These are commented out in requirements-production.txt anyway)
+# opencv-python
+# whisper

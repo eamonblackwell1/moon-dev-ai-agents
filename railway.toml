@@ -1,0 +1,18 @@
+# Railway Configuration for Revival Scanner
+# Docs: https://docs.railway.app/deploy/config-as-code
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 300 --access-logfile - --error-logfile - src.web_app:app"
+healthcheckPath = "/api/status"
+healthcheckTimeout = 10
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# Volume for persistent data storage
+[[deploy.volumes]]
+mountPath = "/app/src/data"
+name = "revival-scanner-data"

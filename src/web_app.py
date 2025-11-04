@@ -694,7 +694,12 @@ def main():
     Path(__file__).parent.joinpath('web_static').mkdir(exist_ok=True)
 
     # Run Flask app
-    app.run(host='0.0.0.0', port=8080, debug=True, use_reloader=False)
+    # Port configurable for Railway (defaults to 8080 for local)
+    port = int(os.getenv('PORT', 8080))
+    # Debug mode disabled for production (set FLASK_DEBUG=True to enable)
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+
+    app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False)
 
 if __name__ == '__main__':
     main()

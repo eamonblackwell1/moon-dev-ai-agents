@@ -140,6 +140,15 @@ PAPER_TRADING_JUPITER_FEE_PCT = 0.06  # 0.06% Jupiter swap fee per trade
 PAPER_TRADING_FAILED_EXIT_CHANCE = 0.05  # 5% chance of failed exit (token frozen/no liquidity)
 PAPER_TRADING_PRICE_CHECK_INTERVAL = 30  # Check prices every 30 seconds
 
+# ============================================================================
+# Production Deployment Settings 🚀
+# ============================================================================
+# Web App Configuration
+WEB_APP_PORT = int(os.getenv('PORT', 8080))  # Railway sets PORT env variable
+WEB_APP_BASE_URL = os.getenv('WEB_APP_BASE_URL', 'http://localhost:8080')  # Set to Railway URL in production
+FLASK_ENV = os.getenv('FLASK_ENV', 'development')  # 'production' or 'development'
+FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'  # Debug mode (off by default)
+
 # Paper Trading Email Notifications 📧
 PAPER_TRADING_EMAIL_ENABLED = True  # Enable email notifications
 PAPER_TRADING_EMAIL_ADDRESS = ""  # Your email address (set this!)

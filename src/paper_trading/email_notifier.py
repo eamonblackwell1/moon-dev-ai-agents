@@ -115,7 +115,7 @@ Take Profit 2: ${position['take_profit_2_price']:.8f} (+{config.PAPER_TRADING_TA
 
 Entry Time: {position['entry_time']}
 
-View dashboard: http://localhost:8080
+View dashboard: {config.WEB_APP_BASE_URL}
 """
 
         return self._send_email(subject, body)
@@ -163,7 +163,7 @@ Hold Time: {trade['hold_days']:.1f} days
 Entry Time: {trade['entry_time']}
 Exit Time: {trade['exit_time']}
 
-View dashboard: http://localhost:8080
+View dashboard: {config.WEB_APP_BASE_URL}
 """
 
         return self._send_email(subject, body)
@@ -222,10 +222,10 @@ WORST TRADE TODAY 💥
 {worst_trade['symbol']}: {worst_trade['pnl_pct']:+.2f}% (${worst_trade['pnl_usd']:.2f})
 """
 
-        body += """
+        body += f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-View full dashboard: http://localhost:8080
+View full dashboard: {config.WEB_APP_BASE_URL}
 """
 
         return self._send_email(subject, body)
@@ -272,7 +272,7 @@ AI INSIGHTS
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-View full performance: http://localhost:8080
+View full performance: {config.WEB_APP_BASE_URL}
 """
 
         return self._send_email(subject, body)

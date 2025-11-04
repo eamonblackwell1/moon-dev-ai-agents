@@ -373,10 +373,13 @@ class RevivalDetectorAgent:
         from src.config import MIN_UNIQUE_WALLETS_24H, MIN_WATCHLIST_COUNT
 
         score = 0.0
+        missing_fields = []
 
         # 1. Community Size (25% weight) - Unique wallets show real community
         unique_wallets = token_data.get('uniqueWallet24h', 0)
-        if unique_wallets >= MIN_UNIQUE_WALLETS_24H * 5:  # 500+ wallets
+        if unique_wallets == 0:
+            missing_fields.append('uniqueWallet24h')
+        elif unique_wallets >= MIN_UNIQUE_WALLETS_24H * 5:  # 500+ wallets
             score += 0.25
         elif unique_wallets >= MIN_UNIQUE_WALLETS_24H * 2:  # 200+ wallets
             score += 0.15
@@ -385,7 +388,9 @@ class RevivalDetectorAgent:
 
         # 2. Transaction Velocity (25% weight) - High trade count shows activity
         trades_1h = token_data.get('trade1h', 0)
-        if trades_1h >= 100:  # Very active
+        if trades_1h == 0:
+            missing_fields.append('trade1h')
+        elif trades_1h >= 100:  # Very active
             score += 0.25
         elif trades_1h >= 50:  # Active
             score += 0.15
@@ -396,24 +401,34 @@ class RevivalDetectorAgent:
         watchlist_count = token_data.get('watch', 0)
         view_24h = token_data.get('view24h', 0)
 
-        if watchlist_count >= MIN_WATCHLIST_COUNT * 4:  # 200+ watchers
+        if watchlist_count == 0:
+            missing_fields.append('watch')
+        elif watchlist_count >= MIN_WATCHLIST_COUNT * 4:  # 200+ watchers
             score += 0.15
         elif watchlist_count >= MIN_WATCHLIST_COUNT:  # 50+ watchers
             score += 0.10
 
-        if view_24h >= 1000:  # High visibility
+        if view_24h == 0:
+            missing_fields.append('view24h')
+        elif view_24h >= 1000:  # High visibility
             score += 0.10
         elif view_24h >= 500:  # Good visibility
             score += 0.05
 
         # 4. Buy Pressure (25% weight) - More buys than sells is bullish
         buy_percentage = token_data.get('buy_percentage', 0)
-        if buy_percentage >= 60:  # Strong buy pressure
+        if buy_percentage == 0:
+            missing_fields.append('buy_percentage')
+        elif buy_percentage >= 60:  # Strong buy pressure
             score += 0.25
         elif buy_percentage >= 55:  # Good buy pressure
             score += 0.15
         elif buy_percentage >= 50:  # Neutral/slight buy
             score += 0.10
+
+        # Log missing fields if any
+        if missing_fields:
+            print(colored(f"    ⚠️ Missing social fields: {', '.join(missing_fields)} - social score limited", "yellow"))
 
         # Cap at 1.0
         return min(score, 1.0)
@@ -638,10 +653,22 @@ class RevivalDetectorAgent:
 
         # Calculate volume score from token data
         volume_score = 0.0
-        if token_data.get('volume_24h', 0) > 50000:  # $50K volume (sustained activity)
+        volume_24h = token_data.get('volume_24h', 0)
+        buys_24h = token_data.get('buys_24h', 0)
+        sells_24h = token_data.get('sells_24h', 0)
+
+        if volume_24h > 50000:  # $50K volume (sustained activity)
             volume_score += 0.5
-        if token_data.get('buys_24h', 0) > token_data.get('sells_24h', 0):  # More buys than sells
+        else:
+            print(colored(f"    📊 Volume score: 24h volume ${volume_24h:,.0f} < $50K threshold", "grey"))
+
+        if buys_24h > sells_24h:  # More buys than sells
             volume_score += 0.5
+        else:
+            print(colored(f"    📊 Volume score: buys_24h ({buys_24h}) ≤ sells_24h ({sells_24h})", "grey"))
+
+        if buys_24h == 0 and sells_24h == 0:
+            print(colored(f"    ⚠️ Missing buys_24h/sells_24h data - volume score limited to volume check only", "yellow"))
 
         # Calculate social sentiment score from BirdEye metrics
         social_score = self.calculate_social_sentiment_score(token_data)

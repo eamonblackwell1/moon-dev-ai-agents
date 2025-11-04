@@ -1,0 +1,67 @@
+# 🌙 Moon Dev's Revival Scanner - Production Requirements
+# Optimized for Railway deployment with Revival Scanner and Paper Trading
+
+# ============================================================================
+# CORE WEB FRAMEWORK (ADDED - Missing from original requirements.txt)
+# ============================================================================
+Flask==3.1.0
+Flask-CORS==5.0.0
+gunicorn==21.2.0  # Production WSGI server
+
+# ============================================================================
+# AI/LLM PROVIDERS
+# ============================================================================
+openai>=1.51.0
+anthropic>=0.5.0
+groq>=0.4.0
+# google-generativeai>=0.3.0  # Disabled due to protobuf conflict
+
+# ============================================================================
+# DATA PROCESSING & ANALYSIS
+# ============================================================================
+numpy>=1.24.0
+pandas>=2.0.0
+pandas-ta>=0.3.14b0
+
+# ============================================================================
+# TRADING & BACKTESTING
+# ============================================================================
+backtesting>=0.3.3
+ta-lib>=0.4.0  # Note: Requires system TA-Lib library
+
+# ============================================================================
+# API & WEB REQUESTS
+# ============================================================================
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
+termcolor>=2.3.0
+tqdm>=4.66.0
+pathlib>=1.0.1
+
+# ============================================================================
+# DOCUMENT PROCESSING (For RBI Agent)
+# ============================================================================
+PyPDF2>=3.0.0
+youtube-transcript-api>=0.6.2
+
+# ============================================================================
+# REMOVED FOR PRODUCTION (Not needed for Revival Scanner)
+# ============================================================================
+# opencv-python>=4.8.0  # Large package, not needed for meme scanner
+# whisper>=1.1.10  # Audio transcription not needed
+# openai-whisper>=20231117  # Audio transcription not needed
+# ffmpeg-python>=0.2.0  # Video processing not needed
+# pillow>=10.0.0  # Image processing not needed for Revival Scanner
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# - Flask/Flask-CORS added (were installed via start_webapp.sh, not in requirements)
+# - gunicorn added for production WSGI server
+# - Removed opencv, whisper, ffmpeg, pillow (not needed for Revival Scanner)
+# - Kept ta-lib (requires apt-get install ta-lib on system)
+# - Total package reduction: ~800MB saved by removing opencv/whisper

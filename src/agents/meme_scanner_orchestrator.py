@@ -221,12 +221,12 @@ class MemeScannerOrchestrator:
         print(colored("\n[PHASE 3/3] Blockchain Age Verification (Helius)", "cyan", attrs=['bold']))
         self._update_progress("Age Verification", 3, "Checking token ages via Helius blockchain...",
                             tokens_filtered=len(prefiltered_addresses))
-        aged_tokens = self.filter_by_age_helius(
+        aged_tokens_dict = self.filter_by_age_helius(
             prefiltered_addresses,
             min_age_hours=MIN_AGE_HOURS  # Minimum 72 hours (3 days)
         )
 
-        if not aged_tokens:
+        if not aged_tokens_dict:
             print(colored("❌ No tokens passed age filter", "red"))
             self._log_error("No tokens passed age filter (all too young)")
             return []
@@ -235,14 +235,16 @@ class MemeScannerOrchestrator:
         # Create a lookup dict for fast access to token data
         token_data_lookup = {token['address']: token for token in prefiltered_tokens}
 
-        # Build full token dicts for aged tokens (preserve BirdEye data)
+        # Build full token dicts for aged tokens (preserve BirdEye data AND add age_hours)
         aged_tokens_with_data = []
-        for addr in aged_tokens:
+        for addr, age_hours in aged_tokens_dict.items():
             if addr in token_data_lookup:
-                aged_tokens_with_data.append(token_data_lookup[addr])
+                token = token_data_lookup[addr].copy()
+                token['age_hours'] = age_hours  # ADD AGE DATA!
+                aged_tokens_with_data.append(token)
             else:
                 # Shouldn't happen, but handle gracefully
-                aged_tokens_with_data.append({'address': addr})
+                aged_tokens_with_data.append({'address': addr, 'age_hours': age_hours})
 
         # Store Phase 3 tokens with full data
         self.phase_tokens['phase3_aged'] = aged_tokens_with_data
@@ -562,9 +564,73 @@ class MemeScannerOrchestrator:
         # Default to False if no clear indicators
         return False
 
+    def enrich_token_with_overview(self, token: Dict) -> Dict:
+        """
+        Enrich a token with complete BirdEye Token Overview data
+
+        Args:
+            token: Token dict with at least 'address' field
+
+        Returns:
+            Enriched token dict with all BirdEye fields
+        """
+        try:
+            address = token['address']
+            url = f"https://public-api.birdeye.so/defi/token_overview?address={address}"
+            headers = {'X-API-KEY': os.getenv('BIRDEYE_API_KEY')}
+
+            response = requests.get(url, headers=headers, timeout=15)
+
+            if response.status_code != 200:
+                print(colored(f"    ⚠️ BirdEye Token Overview API error for {token.get('symbol', 'Unknown')}: HTTP {response.status_code}", "yellow"))
+                return token  # Return original token if API fails
+
+            data = response.json()
+
+            if not data.get('success'):
+                print(colored(f"    ⚠️ BirdEye API returned success=false for {token.get('symbol', 'Unknown')}", "yellow"))
+                return token
+
+            overview_data = data.get('data', {})
+
+            # Merge overview data into token
+            # Keep original fields and add new ones
+            enriched = token.copy()
+
+            # Add social and volume metrics needed for scoring
+            enriched['buy1h'] = overview_data.get('buy1h', 0)
+            enriched['sell1h'] = overview_data.get('sell1h', 0)
+            enriched['trade1h'] = enriched['buy1h'] + enriched['sell1h']
+            enriched['uniqueWallet24h'] = overview_data.get('uniqueWallet24h', 0)
+            enriched['watch'] = overview_data.get('watch', 0)
+            enriched['view24h'] = overview_data.get('view24h', 0)
+            enriched['holder'] = overview_data.get('holder', 0)
+
+            # Calculate buy percentage for volume scoring
+            total_trades = enriched['buy1h'] + enriched['sell1h']
+            enriched['buy_percentage'] = (enriched['buy1h'] / total_trades * 100) if total_trades > 0 else 0
+
+            # For Phase 5 compatibility, also add buys_24h and sells_24h
+            # These are approximations based on 1h data scaled to 24h
+            enriched['buys_24h'] = enriched['buy1h'] * 24  # Rough estimate
+            enriched['sells_24h'] = enriched['sell1h'] * 24  # Rough estimate
+
+            # Update other fields if available
+            enriched['liquidity'] = overview_data.get('liquidity', enriched.get('liquidity', 0))
+            enriched['market_cap'] = overview_data.get('mc', enriched.get('market_cap', 0))
+            enriched['volume_24h'] = overview_data.get('v24hUSD', enriched.get('volume_24h', 0))
+            enriched['price_change_24h'] = overview_data.get('v24hChangePercent', 0)
+
+            return enriched
+
+        except Exception as e:
+            print(colored(f"    ❌ Error enriching token {token.get('symbol', 'Unknown')}: {str(e)}", "red"))
+            return token  # Return original token on error
+
     def liquidity_prefilter(self, tokens: List[Dict], min_liquidity: float = 50000, min_volume_1h: float = 5000) -> List[Dict]:
         """
         Enhanced pre-filter: liquidity, market cap, AND 1-hour volume (all from BirdEye)
+        NOW WITH FULL TOKEN ENRICHMENT for complete scoring data!
         Native meme list guarantees 100% pure memecoins - no keyword filtering needed!
 
         Args:
@@ -573,7 +639,7 @@ class MemeScannerOrchestrator:
             min_volume_1h: Minimum 1-hour volume in USD
 
         Returns:
-            List of token dicts that pass all filters (memecoins only!)
+            List of ENRICHED token dicts that pass all filters (with social/volume metrics!)
         """
         print(colored(f"\n💧 Pre-filtering: Liquidity >${min_liquidity:,.0f}, Market Cap <${MAX_MARKET_CAP:,.0f}, Volume 1h >${min_volume_1h:,.0f}", "cyan"))
 
@@ -604,7 +670,7 @@ class MemeScannerOrchestrator:
             # NO memecoin filtering needed - native meme list guarantees pure memecoins!
             # All tokens from Phase 1 are guaranteed memecoins from BirdEye
 
-            # Passed all filters
+            # Passed all filters - add basic data
             passed.append({
                 'address': address,
                 'symbol': symbol,
@@ -618,7 +684,22 @@ class MemeScannerOrchestrator:
         print(colored(f"   • {len(passed)}/{len(tokens)} tokens passed filters (liquidity + market cap + volume)", "cyan"))
         print(colored(f"   • All tokens are guaranteed memecoins from BirdEye native list", "green"))
 
-        return passed
+        # ENHANCEMENT: Enrich passed tokens with complete BirdEye Token Overview data
+        print(colored(f"\n🔍 Enriching {len(passed)} tokens with BirdEye Token Overview data...", "cyan"))
+        print(colored(f"   (This adds social metrics, buy/sell data, holder counts for scoring)", "grey"))
+
+        enriched_tokens = []
+        for i, token in enumerate(passed, 1):
+            print(colored(f"   [{i}/{len(passed)}] Enriching {token['symbol']}...", "grey"))
+            enriched = self.enrich_token_with_overview(token)
+            enriched_tokens.append(enriched)
+
+            # Rate limiting: BirdEye Standard tier = 1 req/sec
+            time.sleep(1.0)
+
+        print(colored(f"✅ Enrichment complete - all tokens now have social/volume metrics", "green"))
+
+        return enriched_tokens
 
     def filter_by_market_metrics_strict(self, token_addresses: List[str], min_liquidity: float = 80000, min_volume_1h: float = 20000) -> List[str]:
         """
@@ -668,7 +749,7 @@ class MemeScannerOrchestrator:
         print(colored(f"\n📊 {len(passed)}/{len(token_addresses)} tokens passed strict market filters", "cyan"))
         return passed
 
-    def filter_by_age_helius(self, token_addresses: List[str], min_age_hours: float = 24) -> List[str]:
+    def filter_by_age_helius(self, token_addresses: List[str], min_age_hours: float = 24) -> Dict[str, float]:
         """
         Filter tokens by age using Helius blockchain data
 
@@ -677,7 +758,7 @@ class MemeScannerOrchestrator:
             min_age_hours: Minimum token age in hours (NO maximum - revivals can happen anytime)
 
         Returns:
-            List of token addresses that meet minimum age requirement
+            Dictionary of {address: age_hours} for tokens that meet minimum age requirement
         """
         from src.helius_utils import batch_get_token_ages
 
@@ -686,10 +767,10 @@ class MemeScannerOrchestrator:
         rpc_url = os.getenv('HELIUS_RPC_ENDPOINT')
         if not rpc_url:
             print(colored("❌ HELIUS_RPC_ENDPOINT not configured", "red"))
-            return []
+            return {}
 
         ages = batch_get_token_ages(token_addresses, rpc_url)
-        passed = [addr for addr, age in ages.items() if age and age >= min_age_hours]
+        passed = {addr: age for addr, age in ages.items() if age and age >= min_age_hours}
 
         print(colored(f"\n📊 {len(passed)}/{len(token_addresses)} tokens passed age filter (≥{min_age_hours}h)", "cyan"))
         return passed
