@@ -893,6 +893,9 @@ class MemeScannerOrchestrator:
             # Save scan results
             self.save_scan_results(revival_results)
 
+            # Save phase funnel data for web dashboard
+            self.save_phase_funnel()
+
             # Paper Trading Integration
             if config.PAPER_TRADING_ENABLED:
                 print(colored("\n💰 Paper Trading: Evaluating opportunities...", "yellow", attrs=['bold']))
@@ -942,6 +945,39 @@ class MemeScannerOrchestrator:
 
         except Exception as e:
             print(colored(f"⚠️ Could not save results: {str(e)}", "yellow"))
+
+    def save_phase_funnel(self):
+        """Save phase funnel data to JSON for web dashboard persistence"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = self.data_dir / f"phase_funnel_{timestamp}.json"
+
+            # Prepare phase data (sample tokens only to keep file size reasonable)
+            phase_data = {
+                'timestamp': timestamp,
+                'phase_tokens': {
+                    'phase1_birdeye': self.phase_tokens['phase1_birdeye'][:50],  # First 50 tokens
+                    'phase2_prefiltered': self.phase_tokens['phase2_prefiltered'][:50],
+                    'phase3_aged': self.phase_tokens['phase3_aged'][:50],
+                    'phase4_security_passed': self.phase_tokens['phase4_security_passed'][:50],
+                    'phase5_revival_detected': self.phase_tokens['phase5_revival_detected']  # All results
+                },
+                'phase_counts': {
+                    'phase1': len(self.phase_tokens['phase1_birdeye']),
+                    'phase2': len(self.phase_tokens['phase2_prefiltered']),
+                    'phase3': len(self.phase_tokens['phase3_aged']),
+                    'phase4': len(self.phase_tokens['phase4_security_passed']),
+                    'phase5': len(self.phase_tokens['phase5_revival_detected'])
+                }
+            }
+
+            with open(filepath, 'w') as f:
+                json.dump(phase_data, f, indent=2)
+
+            print(colored(f"📊 Phase funnel saved to {filepath.name}", "green"))
+
+        except Exception as e:
+            print(colored(f"⚠️ Could not save phase funnel: {str(e)}", "yellow"))
 
     def export_phase5_results_csv(self, all_results: List[Dict]):
         """Export ALL Phase 5 results (passed and failed) to CSV for analysis"""

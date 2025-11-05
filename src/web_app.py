@@ -67,14 +67,172 @@ scanner_state = {
 scanner_thread = None
 orchestrator = None
 
+# Persistence file paths
+PERSISTENCE_DIR = Path(__file__).parent / "data" / "web_app_state"
+METADATA_FILE = PERSISTENCE_DIR / "scanner_metadata.json"
+ACTIVITY_LOG_FILE = PERSISTENCE_DIR / "activity_log.jsonl"
+PHASE_FUNNEL_FILE = PERSISTENCE_DIR / "last_scan_phases.json"
+
+def _ensure_persistence_dir():
+    """Create persistence directory if it doesn't exist"""
+    PERSISTENCE_DIR.mkdir(parents=True, exist_ok=True)
+
+def _load_latest_scan_results():
+    """Load most recent scan results from CSV files"""
+    try:
+        data_dir = Path(__file__).parent / "data" / "meme_scanner"
+
+        if not data_dir.exists():
+            return []
+
+        # Get most recent scan_results file
+        scan_files = sorted(data_dir.glob("scan_results_*.csv"), reverse=True)
+
+        if not scan_files:
+            return []
+
+        latest_file = scan_files[0]
+
+        import pandas as pd
+        df = pd.read_csv(latest_file)
+
+        # Convert to list of dicts
+        results = df.to_dict('records')
+
+        # Extract timestamp from filename (format: scan_results_YYYYMMDD_HHMMSS.csv)
+        filename = latest_file.stem
+        timestamp_str = filename.replace('scan_results_', '')
+        try:
+            timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+            scanner_state['last_scan_time'] = timestamp.isoformat()
+        except:
+            pass
+
+        print(f"✅ Loaded {len(results)} results from {latest_file.name}")
+        return results
+
+    except Exception as e:
+        print(f"⚠️ Could not load scan results: {e}")
+        return []
+
+def _load_metadata():
+    """Load scanner metadata from JSON file"""
+    try:
+        if not METADATA_FILE.exists():
+            return
+
+        with open(METADATA_FILE, 'r') as f:
+            metadata = json.load(f)
+
+        # Restore state
+        scanner_state['scan_count'] = metadata.get('scan_count', 0)
+        scanner_state['last_scan_time'] = metadata.get('last_scan_time')
+        scanner_state['settings'] = metadata.get('settings', scanner_state['settings'])
+
+        print(f"✅ Loaded metadata: {scanner_state['scan_count']} scans completed")
+
+    except Exception as e:
+        print(f"⚠️ Could not load metadata: {e}")
+
+def _save_metadata():
+    """Save scanner metadata to JSON file"""
+    try:
+        _ensure_persistence_dir()
+
+        metadata = {
+            'scan_count': scanner_state['scan_count'],
+            'last_scan_time': scanner_state['last_scan_time'],
+            'settings': scanner_state['settings'],
+            'saved_at': datetime.now().isoformat()
+        }
+
+        with open(METADATA_FILE, 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+    except Exception as e:
+        print(f"⚠️ Could not save metadata: {e}")
+
+def _load_activity_log():
+    """Load activity log from JSONL file (last 500 entries)"""
+    try:
+        if not ACTIVITY_LOG_FILE.exists():
+            return
+
+        with open(ACTIVITY_LOG_FILE, 'r') as f:
+            lines = f.readlines()
+
+        # Load last 500 entries
+        recent_lines = lines[-500:] if len(lines) > 500 else lines
+
+        activity_log = []
+        for line in recent_lines:
+            try:
+                activity_log.append(json.loads(line.strip()))
+            except:
+                continue
+
+        scanner_state['activity_log'] = activity_log
+        print(f"✅ Loaded {len(activity_log)} activity log entries")
+
+    except Exception as e:
+        print(f"⚠️ Could not load activity log: {e}")
+
+def _save_activity_log_entry(entry):
+    """Append single entry to activity log file"""
+    try:
+        _ensure_persistence_dir()
+
+        with open(ACTIVITY_LOG_FILE, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+
+    except Exception as e:
+        print(f"⚠️ Could not save activity log entry: {e}")
+
+def _load_phase_funnel():
+    """Load last scan's phase funnel data from JSON"""
+    try:
+        if not PHASE_FUNNEL_FILE.exists():
+            return
+
+        with open(PHASE_FUNNEL_FILE, 'r') as f:
+            phase_data = json.load(f)
+
+        scanner_state['phase_stats'] = phase_data.get('phase_stats', {})
+
+        print(f"✅ Loaded phase funnel data")
+
+    except Exception as e:
+        print(f"⚠️ Could not load phase funnel: {e}")
+
+def _save_phase_funnel():
+    """Save current phase funnel data to JSON"""
+    try:
+        _ensure_persistence_dir()
+
+        phase_data = {
+            'phase_stats': scanner_state['phase_stats'],
+            'saved_at': datetime.now().isoformat()
+        }
+
+        with open(PHASE_FUNNEL_FILE, 'w') as f:
+            json.dump(phase_data, f, indent=2)
+
+    except Exception as e:
+        print(f"⚠️ Could not save phase funnel: {e}")
+
 def log_activity(message, level='info'):
     """Add message to activity log"""
-    scanner_state['activity_log'].append({
+    entry = {
         'timestamp': datetime.now().isoformat(),
         'message': message,
         'level': level
-    })
-    # Keep only last 500 entries
+    }
+    scanner_state['activity_log'].append(entry)
+
+    # Save to persistent file
+    _save_activity_log_entry(entry)
+
+    # Keep only last 500 entries in memory
     if len(scanner_state['activity_log']) > 500:
         scanner_state['activity_log'] = scanner_state['activity_log'][-500:]
 
@@ -141,6 +299,10 @@ def background_scanner():
 
             log_activity(f"Scan completed - found {len(results)} opportunities", 'success')
 
+            # Save persistent state after each scan
+            _save_metadata()
+            _save_phase_funnel()
+
             # Wait for next scan
             time.sleep(scanner_state['settings']['scan_interval'])
 
@@ -199,10 +361,15 @@ def get_results():
     # Sort by score
     filtered_results.sort(key=lambda x: x.get('revival_score', 0), reverse=True)
 
+    # Determine data source
+    data_source = 'live' if scanner_state['current_scan'] == 'running' else 'loaded'
+
     return jsonify({
         'results': filtered_results,
         'total': len(scanner_state['results']),
-        'filtered': len(filtered_results)
+        'filtered': len(filtered_results),
+        'data_source': data_source,
+        'last_scan_time': scanner_state['last_scan_time']
     })
 
 @app.route('/api/scan/start', methods=['POST'])
@@ -261,6 +428,10 @@ def scan_once():
         scanner_state['current_scan'] = 'completed'
 
         log_activity(f"Scan completed - found {len(results)} opportunities", 'success')
+
+        # Save persistent state after manual scan
+        _save_metadata()
+        _save_phase_funnel()
 
         return jsonify({
             'status': 'success',
@@ -400,14 +571,44 @@ def get_alerts():
 def get_phases():
     """Get token counts and samples for each phase of the scanning pipeline (5-phase structure)"""
     try:
-        if orchestrator is None:
-            return jsonify({
-                'error': 'Scanner not initialized',
-                'phases': []
-            })
+        # Try to get phase data from orchestrator first, fall back to loaded data
+        if orchestrator is not None and orchestrator.phase_tokens:
+            phase_tokens = orchestrator.phase_tokens
+            data_source = 'live'
+        else:
+            # Try to load from most recent phase funnel JSON
+            try:
+                data_dir = Path(__file__).parent / "data" / "meme_scanner"
+                phase_files = sorted(data_dir.glob("phase_funnel_*.json"), reverse=True)
+                if phase_files:
+                    with open(phase_files[0], 'r') as f:
+                        loaded_data = json.load(f)
+                        phase_tokens = loaded_data.get('phase_tokens', {})
+                        data_source = 'loaded'
+                else:
+                    # Use phase_stats from memory if available
+                    if scanner_state['phase_stats']:
+                        # Reconstruct minimal phase_tokens from stats
+                        phase_tokens = {
+                            'phase1_birdeye': [],
+                            'phase2_prefiltered': [],
+                            'phase3_aged': [],
+                            'phase4_security_passed': [],
+                            'phase5_revival_detected': []
+                        }
+                        data_source = 'cached'
+                    else:
+                        return jsonify({
+                            'error': 'No phase data available',
+                            'phases': []
+                        })
+            except Exception as e:
+                return jsonify({
+                    'error': f'Could not load phase data: {str(e)}',
+                    'phases': []
+                })
 
         phase_data = []
-        phase_tokens = orchestrator.phase_tokens
 
         # Phase 1: BirdEye Discovery (Native Meme List)
         phase1 = phase_tokens.get('phase1_birdeye', [])
@@ -493,7 +694,8 @@ def get_phases():
 
         return jsonify({
             'phases': phase_data,
-            'total_phases': 5
+            'total_phases': 5,
+            'data_source': data_source
         })
 
     except Exception as e:
@@ -692,6 +894,35 @@ def main():
     # Create necessary directories
     Path(__file__).parent.joinpath('web_templates').mkdir(exist_ok=True)
     Path(__file__).parent.joinpath('web_static').mkdir(exist_ok=True)
+
+    # Load persistent state on startup
+    print("\n📂 Loading persistent state...")
+    _load_metadata()
+    _load_activity_log()
+    _load_phase_funnel()
+
+    # Load latest scan results
+    results = _load_latest_scan_results()
+    if results:
+        scanner_state['results'] = results
+        log_activity(f"Restored {len(results)} scan results from previous session", 'info')
+
+    # Pre-initialize paper trading if enabled and has positions
+    try:
+        import src.config as config
+        if config.PAPER_TRADING_ENABLED:
+            agent, _ = init_paper_trading()
+            open_positions = agent.position_manager.get_open_positions()
+            if open_positions:
+                # Auto-start monitoring for existing positions
+                if not agent.monitoring_active:
+                    agent.start_monitoring()
+                    print(f"🔄 Resumed paper trading monitoring for {len(open_positions)} existing positions")
+                    log_activity(f"Resumed monitoring for {len(open_positions)} paper trading positions", 'info')
+    except Exception as e:
+        print(f"⚠️ Could not resume paper trading monitoring: {e}")
+
+    print("\n✅ State restoration complete\n")
 
     # Run Flask app
     # Port configurable for Railway (defaults to 8080 for local)

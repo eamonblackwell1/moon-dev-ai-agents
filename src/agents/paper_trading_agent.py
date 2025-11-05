@@ -49,6 +49,12 @@ class PaperTradingAgent:
         print(f"   Max Positions: {config.PAPER_TRADING_MAX_POSITIONS}")
         print(f"   Min Revival Score: {config.PAPER_TRADING_MIN_REVIVAL_SCORE}")
 
+        # Auto-resume monitoring if we have existing open positions
+        open_positions = self.position_manager.get_open_positions()
+        if open_positions:
+            print(f"\n🔄 Found {len(open_positions)} existing positions - auto-resuming monitoring...")
+            self.start_monitoring()
+
     def evaluate_opportunities(self, opportunities: List[Dict]) -> List[Dict]:
         """
         Evaluate Revival Scanner opportunities and open positions
