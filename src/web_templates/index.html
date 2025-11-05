@@ -486,7 +486,12 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    alert('✅ Scanner started! Will scan every 5 minutes.');
+                    // Get scan interval from settings and format message
+                    const intervalMinutes = Math.floor(scannerSettings.scan_interval / 60);
+                    const intervalMsg = intervalMinutes >= 60
+                        ? `${Math.floor(intervalMinutes / 60)} hour${intervalMinutes >= 120 ? 's' : ''}`
+                        : `${intervalMinutes} minute${intervalMinutes > 1 ? 's' : ''}`;
+                    alert(`✅ Scanner started! Will scan every ${intervalMsg}.`);
                     updateStatus();
 
                     // Auto-refresh every 30 seconds
