@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 from termcolor import colored
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -605,7 +606,7 @@ class MemeScannerOrchestrator:
             url = f"https://public-api.birdeye.so/defi/token_overview?address={address}"
             headers = {'X-API-KEY': api_key}
 
-            response = requests.get(url, headers=headers, timeout=15)
+            response = requests.get(url, headers=headers, timeout=5)  # Reduced from 15s - BirdEye typically responds in <2s
 
             if response.status_code != 200:
                 print(colored(f"    ⚠️ BirdEye Token Overview API error for {token.get('symbol', 'Unknown')}: HTTP {response.status_code}", "yellow"))
@@ -663,10 +664,10 @@ class MemeScannerOrchestrator:
                     'address': address  # Use the address variable from line 603
                 }
 
-                # Rate limit - BirdEye allows 1 req/sec
-                time.sleep(1.0)
+                # Note: Rate limiting handled by caller in liquidity_prefilter() - no sleep here
+                # This avoids double-sleeping (was causing 2.5 min delay for 150 tokens)
 
-                security_response = requests.get(security_url, headers=headers, params=params, timeout=10)
+                security_response = requests.get(security_url, headers=headers, params=params, timeout=5)  # Reduced from 10s
 
                 if security_response.status_code == 200:
                     security_data = security_response.json()
@@ -755,17 +756,39 @@ class MemeScannerOrchestrator:
         # ENHANCEMENT: Enrich passed tokens with complete BirdEye Token Overview data
         print(colored(f"\n🔍 Enriching {len(passed)} tokens with BirdEye Token Overview data...", "cyan"))
         print(colored(f"   (This adds social metrics, buy/sell data, holder counts for scoring)", "grey"))
+        print(colored(f"   Using parallelization with 3 workers for faster processing", "grey"))
 
         enriched_tokens = []
-        for i, token in enumerate(passed, 1):
-            print(colored(f"   [{i}/{len(passed)}] Enriching {token['symbol']}...", "grey"))
-            enriched = self.enrich_token_with_overview(token)
-            enriched_tokens.append(enriched)
+        max_workers = 3  # 3 parallel workers to respect BirdEye rate limits
+        completed_count = 0
 
-            # Rate limiting: BirdEye Standard tier = 1 req/sec
-            time.sleep(1.0)
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all enrichment tasks
+            futures = {
+                executor.submit(self.enrich_token_with_overview, token): token
+                for token in passed
+            }
 
-        print(colored(f"✅ Enrichment complete - all tokens now have social/volume metrics", "green"))
+            # Process results as they complete
+            for future in as_completed(futures):
+                token = futures[future]
+                completed_count += 1
+
+                try:
+                    enriched = future.result(timeout=30)  # 30 second timeout per token
+                    enriched_tokens.append(enriched)
+                    print(colored(f"   [{completed_count}/{len(passed)}] ✅ Enriched {enriched.get('symbol', 'Unknown')}", "grey"))
+                except Exception as e:
+                    print(colored(f"   [{completed_count}/{len(passed)}] ❌ Failed to enrich {token.get('symbol', 'Unknown')}: {str(e)}", "red"))
+                    # Add original token on failure (without enrichment)
+                    enriched_tokens.append(token)
+
+                # Rate limiting: BirdEye Standard tier = 1 req/sec
+                # With 3 workers, this ensures we don't exceed the rate limit
+                time.sleep(0.35)  # 3 workers * 0.35s = ~1 req/sec overall
+
+        print(colored(f"✅ Enrichment complete - {len(enriched_tokens)} tokens processed", "green"))
 
         return enriched_tokens
 

@@ -45,4 +45,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Run the application with gunicorn for production
 # Use shell form to allow environment variable expansion
-CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 4 --timeout 300 --access-logfile - --error-logfile - src.web_app:app
+# Increased timeout to 600s (10 min) to handle longer enrichment phases
+CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 4 --timeout 600 --access-logfile - --error-logfile - src.web_app:app

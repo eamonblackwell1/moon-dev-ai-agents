@@ -284,31 +284,53 @@ def init_orchestrator():
     return orchestrator
 
 def background_scanner():
-    """Background thread for continuous scanning"""
+    """Background thread for continuous scanning with timeout detection"""
     global scanner_state, orchestrator
 
     orchestrator = init_orchestrator()
+    MAX_SCAN_DURATION = 1800  # 30 minutes maximum scan time
 
     while scanner_state['running']:
         try:
             print(f"🔄 Starting scan #{scanner_state['scan_count'] + 1}")
 
             # Reset progress
+            scan_start_time = time.time()  # Track actual start time
             scanner_state['progress']['scan_start_time'] = datetime.now().isoformat()
             scanner_state['current_scan'] = 'running'
             scanner_state['last_scan_time'] = datetime.now().isoformat()
 
             log_activity(f"Starting scan #{scanner_state['scan_count'] + 1}", 'info')
 
-            # Run scan
-            results = orchestrator.run_scan_cycle()
+            # Run scan with timeout monitoring
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(orchestrator.run_scan_cycle)
 
-            # Update results
-            scanner_state['results'] = results
-            scanner_state['scan_count'] += 1
-            scanner_state['current_scan'] = 'completed'
+                try:
+                    # Wait for scan to complete with timeout
+                    results = future.result(timeout=MAX_SCAN_DURATION)
 
-            log_activity(f"Scan completed - found {len(results)} opportunities", 'success')
+                    # Update results
+                    scanner_state['results'] = results
+                    scanner_state['scan_count'] += 1
+                    scanner_state['current_scan'] = 'completed'
+
+                    scan_duration = time.time() - scan_start_time
+                    log_activity(f"Scan completed in {scan_duration:.1f}s - found {len(results)} opportunities", 'success')
+
+                except concurrent.futures.TimeoutError:
+                    # Scan exceeded timeout
+                    log_error(f"Scan timeout: exceeded {MAX_SCAN_DURATION}s limit")
+                    scanner_state['current_scan'] = 'timeout'
+                    print(f"⚠️ Scan #{scanner_state['scan_count'] + 1} timed out after {MAX_SCAN_DURATION}s")
+
+                    # Cancel the future if possible
+                    future.cancel()
+
+                    # Wait before retry
+                    time.sleep(300)  # Wait 5 minutes before retry
+                    continue
 
             # Save persistent state after each scan
             _save_metadata()
