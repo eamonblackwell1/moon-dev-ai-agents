@@ -652,23 +652,16 @@ class RevivalDetectorAgent:
         smart_score, smart_details = self.check_smart_money(token_address)
 
         # Calculate volume score from token data
+        # Simplified: Only check absolute volume threshold (buy/sell ratio moved to social sentiment)
         volume_score = 0.0
         volume_24h = token_data.get('volume_24h', 0)
-        buys_24h = token_data.get('buys_24h', 0)
-        sells_24h = token_data.get('sells_24h', 0)
 
         if volume_24h > 50000:  # $50K volume (sustained activity)
-            volume_score += 0.5
+            volume_score = 1.0  # Full score if threshold met
+            print(colored(f"    📊 Volume score: 24h volume ${volume_24h:,.0f} > $50K threshold ✓", "green"))
         else:
-            print(colored(f"    📊 Volume score: 24h volume ${volume_24h:,.0f} < $50K threshold", "grey"))
-
-        if buys_24h > sells_24h:  # More buys than sells
-            volume_score += 0.5
-        else:
-            print(colored(f"    📊 Volume score: buys_24h ({buys_24h}) ≤ sells_24h ({sells_24h})", "grey"))
-
-        if buys_24h == 0 and sells_24h == 0:
-            print(colored(f"    ⚠️ Missing buys_24h/sells_24h data - volume score limited to volume check only", "yellow"))
+            volume_score = min(volume_24h / 50000, 1.0)  # Partial score based on how close to threshold
+            print(colored(f"    📊 Volume score: 24h volume ${volume_24h:,.0f} < $50K threshold (score: {volume_score:.2f})", "grey"))
 
         # Calculate social sentiment score from BirdEye metrics
         social_score = self.calculate_social_sentiment_score(token_data)
@@ -677,10 +670,10 @@ class RevivalDetectorAgent:
         from src.config import PRICE_PATTERN_WEIGHT, SMART_MONEY_WEIGHT, VOLUME_WEIGHT, SOCIAL_SENTIMENT_WEIGHT
 
         revival_score = (
-            price_score * PRICE_PATTERN_WEIGHT +          # 60% weight on price pattern (increased)
-            smart_score * SMART_MONEY_WEIGHT +            # 15% weight on smart money (reduced from 30%)
-            volume_score * VOLUME_WEIGHT +                # 15% weight on volume (reduced from 20%)
-            social_score * SOCIAL_SENTIMENT_WEIGHT        # 10% weight on social sentiment (NEW)
+            price_score * PRICE_PATTERN_WEIGHT +          # 60% weight on price pattern (core signal)
+            smart_score * SMART_MONEY_WEIGHT +            # 0% weight on smart money (too rare in small caps)
+            volume_score * VOLUME_WEIGHT +                # 15% weight on volume (activity validation)
+            social_score * SOCIAL_SENTIMENT_WEIGHT        # 25% weight on social sentiment (increased - key for small caps)
         )
 
         result = {

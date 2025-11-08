@@ -115,9 +115,9 @@ HOLDER_CONCENTRATION_THRESHOLD = 30.0  # Max % that top 10 holders can own (redu
 
 # Revival Pattern Scoring Weights ⚖️
 PRICE_PATTERN_WEIGHT = 0.60  # 60% - Price dump-floor-recovery pattern (most important)
-SMART_MONEY_WEIGHT = 0.15  # 15% - Whale wallet accumulation (reduced from 30%)
+SMART_MONEY_WEIGHT = 0.0  # 0% - Whale presence too rare in small-cap tokens (was 15%)
 VOLUME_WEIGHT = 0.15  # 15% - Volume patterns and velocity
-SOCIAL_SENTIMENT_WEIGHT = 0.10  # 10% - BirdEye social metrics (holder growth, watchlist, etc.)
+SOCIAL_SENTIMENT_WEIGHT = 0.25  # 25% - BirdEye social metrics (increased from 10% - better indicator for small caps)
 
 # Paper Trading Settings 📊
 PAPER_TRADING_ENABLED = True  # Enable paper trading simulation
