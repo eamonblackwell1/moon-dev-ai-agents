@@ -52,6 +52,68 @@ def cleanup_temp_data():
 
 atexit.register(cleanup_temp_data)
 
+
+def _calculate_sma(series: pd.Series, length: int) -> pd.Series:
+    """
+    Return a Simple Moving Average for the provided series.
+    Falls back to pandas rolling mean when pandas_ta is unavailable.
+    """
+    if ta is not None:
+        try:
+            result = ta.sma(series, length=length)
+            if result is not None:
+                return result
+        except Exception as e:
+            print(f"⚠️ pandas_ta.sma failed (length={length}): {e} - using pandas rolling mean fallback")
+
+    return series.rolling(window=length, min_periods=length).mean()
+
+
+def _calculate_rsi(series: pd.Series, length: int = 14) -> pd.Series:
+    """
+    Return Relative Strength Index for the provided series.
+    Falls back to pandas-based Wilder's RSI when pandas_ta is unavailable.
+    """
+    if ta is not None:
+        try:
+            result = ta.rsi(series, length=length)
+            if result is not None:
+                return result
+        except Exception as e:
+            print(f"⚠️ pandas_ta.rsi failed (length={length}): {e} - using pandas RSI fallback")
+
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+
+    avg_gain = gain.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi
+
+
+def _append_indicator_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure required indicator columns exist on the OHLCV dataframe.
+    Always returns a new DataFrame instance to avoid mutating cached copies.
+    """
+    if df.empty or 'Close' not in df.columns:
+        return df
+
+    enriched = df.copy()
+    enriched['MA20'] = _calculate_sma(enriched['Close'], length=20)
+    enriched['RSI'] = _calculate_rsi(enriched['Close'], length=14)
+    enriched['MA40'] = _calculate_sma(enriched['Close'], length=40)
+
+    enriched['Price_above_MA20'] = enriched['Close'] > enriched['MA20']
+    enriched['Price_above_MA40'] = enriched['Close'] > enriched['MA40']
+    enriched['MA20_above_MA40'] = enriched['MA20'] > enriched['MA40']
+
+    return enriched
+
 # Custom function to print JSON in a human-readable format
 def print_pretty_json(data):
     pp = pprint.PrettyPrinter(indent=4)
@@ -356,15 +418,41 @@ def get_data(address, days_back_4_data, timeframe):
     temp_file = f"temp_data/{address}_latest.csv"
     if os.path.exists(temp_file):
         print(f"📂 Moon Dev found cached data for {address[:4]}")
-        return pd.read_csv(temp_file)
+        cached_df = pd.read_csv(temp_file)
+        return _append_indicator_columns(cached_df)
 
     url = f"https://public-api.birdeye.so/defi/ohlcv?address={address}&type={timeframe}&time_from={time_from}&time_to={time_to}"
 
     headers = {"X-API-KEY": BIRDEYE_API_KEY}
-    response = requests.get(url, headers=headers)
+
+    print(f"📊 Fetching OHLCV for {address[:8]}... (timeframe: {timeframe}, days: {days_back_4_data})")
+
+    # Try with timeout and retry logic
+    try:
+        response = requests.get(url, headers=headers, timeout=15)  # 15s timeout for OHLCV
+    except requests.Timeout:
+        print(f"⏱️ First attempt timed out for {address[:8]}, retrying with longer timeout...")
+        try:
+            response = requests.get(url, headers=headers, timeout=30)  # Retry with 30s timeout
+        except requests.Timeout:
+            print(f"❌ OHLCV request timed out for {address[:8]} after 30s")
+            return pd.DataFrame(columns=['Datetime (UTC)', 'Open', 'High', 'Low', 'Close', 'Volume'])
+    except Exception as e:
+        print(f"❌ Error fetching OHLCV for {address[:8]}: {str(e)}")
+        return pd.DataFrame(columns=['Datetime (UTC)', 'Open', 'High', 'Low', 'Close', 'Volume'])
+
     if response.status_code == 200:
         json_response = response.json()
         items = json_response.get('data', {}).get('items', [])
+
+        print(f"✅ BirdEye returned {len(items)} candles for {address[:8]}...")
+
+        # Check if we got empty data
+        if not items:
+            print(f"⚠️ WARNING: BirdEye returned empty OHLCV data for {address[:8]}!")
+            print(f"   This token may not have price history on BirdEye")
+            # Return empty DataFrame with proper columns
+            return pd.DataFrame(columns=['Datetime (UTC)', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
         processed_data = [{
             'Datetime (UTC)': datetime.utcfromtimestamp(item['unixTime']).strftime('%Y-%m-%d %H:%M:%S'),
@@ -392,20 +480,14 @@ def get_data(address, days_back_4_data, timeframe):
 
         print(f"📊 MoonDev's Data Analysis Ready! Processing {len(df)} candles... 🎯")
 
-        # Always save to temp for current run
-        df.to_csv(temp_file)
+        # Calculate indicators (with pandas_ta fallback) before caching
+        df_with_indicators = _append_indicator_columns(df)
+
+        # Always save to temp for current run (including indicators)
+        df_with_indicators.to_csv(temp_file, index=False)
         print(f"🔄 Moon Dev cached data for {address[:4]}")
 
-        # Calculate indicators
-        df['MA20'] = ta.sma(df['Close'], length=20)
-        df['RSI'] = ta.rsi(df['Close'], length=14)
-        df['MA40'] = ta.sma(df['Close'], length=40)
-
-        df['Price_above_MA20'] = df['Close'] > df['MA20']
-        df['Price_above_MA40'] = df['Close'] > df['MA40']
-        df['MA20_above_MA40'] = df['MA20'] > df['MA40']
-
-        return df
+        return df_with_indicators
     else:
         print(f"❌ MoonDev Error: Failed to fetch data for address {address}. Status code: {response.status_code}")
         if response.status_code == 401:

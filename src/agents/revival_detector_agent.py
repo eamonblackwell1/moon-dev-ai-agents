@@ -141,6 +141,10 @@ class RevivalDetectorAgent:
             if creation_time:
                 age_hours = (time.time() - creation_time) / 3600  # Convert seconds to hours
 
+            if age_hours is None:
+                # BirdEye sometimes omits creationTime; fallback to Dexscreener age
+                age_hours = self.get_token_age_hours(token_address)
+
             overview = {
                 'token_address': token_address,
                 'symbol': token_data.get('symbol', 'Unknown'),
@@ -157,6 +161,29 @@ class RevivalDetectorAgent:
                 'age_hours': age_hours,
                 'creator': token_data.get('creator'),
             }
+
+            # Social and trade activity metrics (with derived fields)
+            buy_1h = float(token_data.get('buy1h', 0) or 0)
+            sell_1h = float(token_data.get('sell1h', 0) or 0)
+            trade_1h = buy_1h + sell_1h
+
+            if trade_1h > 0:
+                buy_percentage = (buy_1h / trade_1h) * 100
+                sell_percentage = (sell_1h / trade_1h) * 100
+            else:
+                buy_percentage = 0.0
+                sell_percentage = 0.0
+
+            overview.update({
+                'buy1h': buy_1h,
+                'sell1h': sell_1h,
+                'trade1h': float(token_data.get('trade1h', trade_1h)),
+                'buy_percentage': float(token_data.get('buy_percentage', buy_percentage)),
+                'sell_percentage': float(token_data.get('sell_percentage', sell_percentage)),
+                'uniqueWallet24h': int(token_data.get('uniqueWallet24h', 0) or 0),
+                'watch': int(token_data.get('watch', 0) or 0),
+                'view24h': int(token_data.get('view24h', 0) or 0),
+            })
 
             # Cache the result
             self.cache[cache_key] = (time.time(), overview)
@@ -211,6 +238,48 @@ class RevivalDetectorAgent:
         except Exception as e:
             print(colored(f"❌ Error fetching DexScreener data: {str(e)}", "red"))
             return None
+
+    def _ensure_social_metrics(self, token_address: str, token_data: Dict) -> Dict:
+        """
+        Ensure token data contains the social/trade fields required for scoring.
+        If data arrives from an upstream cache without these fields, refresh from BirdEye.
+        """
+        augmented_data = dict(token_data)
+
+        required_api_fields = ['buy1h', 'sell1h', 'uniqueWallet24h', 'watch', 'view24h']
+        missing_core_fields = [field for field in required_api_fields if field not in augmented_data]
+
+        if missing_core_fields:
+            fresh_overview = self.get_token_overview(token_address)
+            if fresh_overview:
+                for key in required_api_fields + ['trade1h', 'buy_percentage', 'sell_percentage']:
+                    if key in fresh_overview and (key not in augmented_data or augmented_data.get(key) in [None, 0]):
+                        augmented_data[key] = fresh_overview[key]
+
+        # Convert social metrics to numeric types with safe defaults
+        augmented_data['buy1h'] = float(augmented_data.get('buy1h', 0) or 0)
+        augmented_data['sell1h'] = float(augmented_data.get('sell1h', 0) or 0)
+
+        trade1h = float(augmented_data.get('trade1h', 0) or 0)
+        if trade1h == 0:
+            trade1h = augmented_data['buy1h'] + augmented_data['sell1h']
+        augmented_data['trade1h'] = trade1h
+
+        if trade1h > 0:
+            augmented_data['buy_percentage'] = float(
+                augmented_data.get('buy_percentage',
+                                   (augmented_data['buy1h'] / trade1h) * 100))
+            augmented_data['sell_percentage'] = float(
+                augmented_data.get('sell_percentage',
+                                   (augmented_data['sell1h'] / trade1h) * 100))
+        else:
+            augmented_data['buy_percentage'] = float(augmented_data.get('buy_percentage', 0))
+            augmented_data['sell_percentage'] = float(augmented_data.get('sell_percentage', 0))
+
+        for key in ['uniqueWallet24h', 'watch', 'view24h']:
+            augmented_data[key] = int(augmented_data.get(key, 0) or 0)
+
+        return augmented_data
 
     def analyze_price_pattern(self, token_address: str, token_data: Dict) -> Tuple[float, Dict]:
         """
@@ -628,6 +697,9 @@ class RevivalDetectorAgent:
         else:
             # Use BirdEye overview data (preferred)
             token_data = token_overview
+
+        # Ensure we have the social and trade metrics required for scoring
+        token_data = self._ensure_social_metrics(token_address, token_data)
 
         # Age already verified in Phase 3 (72h-180d window) - no need to re-check
         # Extract age for reporting purposes only
