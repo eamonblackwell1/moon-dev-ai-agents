@@ -19,6 +19,7 @@ DexScreener used as fallback only (not in primary pipeline)
 import os
 import sys
 import time
+import json
 import csv
 import requests
 import pandas as pd
@@ -988,7 +989,7 @@ class MemeScannerOrchestrator:
             self.save_phase_funnel()
 
             # Paper Trading Integration
-            if config.PAPER_TRADING_ENABLED:
+            if PAPER_TRADING_ENABLED:
                 print(colored("\n💰 Paper Trading: Evaluating opportunities...", "yellow", attrs=['bold']))
                 try:
                     from src.agents.paper_trading_agent import PaperTradingAgent
@@ -1082,6 +1083,10 @@ class MemeScannerOrchestrator:
             # Prepare data for CSV
             csv_data = []
             for result in all_results:
+                price_details = result.get('price_details') or {}
+                smart_details = result.get('smart_details') or {}
+                holder_details = result.get('holder_details') or {}
+
                 csv_data.append({
                     'address': result.get('token_address', ''),
                     'symbol': result.get('token_symbol') or result.get('symbol', ''),
@@ -1098,7 +1103,23 @@ class MemeScannerOrchestrator:
                     'market_cap': result.get('market_cap', 0),
                     'volume_24h': result.get('volume_24h', 0),
                     'age_hours': result.get('age_hours', 0),
-                    'holder_count': result.get('holder_count', 0)
+                    'holder_count': result.get('holder_count', 0),
+                    'price_details': json.dumps(price_details),
+                    'price_ath_price': price_details.get('ath_price'),
+                    'price_floor_price': price_details.get('floor_price'),
+                    'price_current_price': price_details.get('current_price'),
+                    'price_dump_severity': price_details.get('dump_severity'),
+                    'price_recovery_ratio': price_details.get('recovery_ratio'),
+                    'price_recovery_from_ath': price_details.get('recovery_from_ath'),
+                    'price_higher_lows': price_details.get('higher_lows'),
+                    'price_volume_increase': price_details.get('volume_increase'),
+                    'price_data_points': price_details.get('price_data_points'),
+                    'price_days_analyzed': price_details.get('days_analyzed'),
+                    'price_timeframe': price_details.get('timeframe'),
+                    'price_ath_to_floor_pct': price_details.get('ath_to_floor_pct'),
+                    'price_floor_to_current_pct': price_details.get('floor_to_current_pct'),
+                    'smart_details': json.dumps(smart_details),
+                    'holder_details': json.dumps(holder_details)
                 })
 
             # Write to CSV
@@ -1106,7 +1127,12 @@ class MemeScannerOrchestrator:
                 if csv_data:
                     fieldnames = ['address', 'symbol', 'name', 'revival_score', 'price_score', 'smart_score',
                                   'volume_score', 'social_score', 'passed', 'failure_reason', 'error',
-                                  'liquidity_usd', 'market_cap', 'volume_24h', 'age_hours', 'holder_count']
+                                  'liquidity_usd', 'market_cap', 'volume_24h', 'age_hours', 'holder_count',
+                                  'price_details', 'price_ath_price', 'price_floor_price', 'price_current_price',
+                                  'price_dump_severity', 'price_recovery_ratio', 'price_recovery_from_ath',
+                                  'price_higher_lows', 'price_volume_increase', 'price_data_points',
+                                  'price_days_analyzed', 'price_timeframe', 'price_ath_to_floor_pct',
+                                  'price_floor_to_current_pct', 'smart_details', 'holder_details']
                     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                     writer.writeheader()
                     writer.writerows(csv_data)
