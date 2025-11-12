@@ -137,13 +137,25 @@ class PositionManager:
         else:
             df = pd.DataFrame()
 
-        # Update or append
-        if len(df) > 0 and position['id'] in df['id'].values:
-            # Update existing
-            df.loc[df['id'] == position['id']] = pd.Series(position)
+        position_df = pd.DataFrame([position])
+
+        if len(df) == 0:
+            df = position_df
+            columns = position_df.columns.tolist()
         else:
-            # Append new
-            df = pd.concat([df, pd.DataFrame([position])], ignore_index=True)
+            columns = df.columns.tolist()
+
+            if position['id'] in df['id'].values:
+                df = df[df['id'] != position['id']]
+
+            df = pd.concat([df, position_df], ignore_index=True, sort=False)
+
+            # Preserve existing column order and include any new columns at the end
+            for col in position_df.columns:
+                if col not in columns:
+                    columns.append(col)
+
+            df = df.reindex(columns=columns)
 
         # Save
         df.to_csv(self.positions_file, index=False)
