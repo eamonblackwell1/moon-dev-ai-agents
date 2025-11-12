@@ -201,8 +201,10 @@ class PositionManager:
         """
         # Check position limits
         open_positions = len([p for p in self.positions.values() if p['status'] == 'open'])
-        if open_positions >= config.PAPER_TRADING_MAX_POSITIONS:
-            self._log(f"❌ Cannot open position: max positions ({config.PAPER_TRADING_MAX_POSITIONS}) reached", 'warning')
+        max_positions = config.PAPER_TRADING_MAX_POSITIONS
+        if max_positions is not None and max_positions > 0 and open_positions >= max_positions:
+            max_positions_text = max_positions if max_positions is not None else "Unlimited"
+            self._log(f"❌ Cannot open position: max positions ({max_positions_text}) reached", 'warning')
             return None
 
         # Check cash balance

@@ -200,6 +200,21 @@
         let autoRefresh = null;
         let activityRefresh = null;
 
+        function safeNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function formatCurrency(value, decimals = 2) {
+            const num = safeNumber(value);
+            return `$${num.toFixed(decimals)}`;
+        }
+
+        function formatPercent(value, decimals = 2) {
+            const num = safeNumber(value);
+            return `${num.toFixed(decimals)}%`;
+        }
+
         // Load status on page load
         window.addEventListener('load', () => {
             updateStatus();
@@ -799,16 +814,21 @@
                 const data = await response.json();
 
                 if (data.status === 'success') {
-                    const portfolio = data.portfolio;
-                    document.getElementById('paperTotalValue').textContent = `$${portfolio.total_value_usd.toFixed(2)}`;
-                    document.getElementById('paperCash').textContent = `$${portfolio.cash_usd.toFixed(2)}`;
+                    const portfolio = data.portfolio || {};
+                    const totalValue = safeNumber(portfolio.total_value_usd);
+                    const cashValue = safeNumber(portfolio.cash_usd);
+                    const pnlUsd = safeNumber(portfolio.total_pnl_usd);
+                    const pnlPct = safeNumber(portfolio.total_pnl_pct);
+                    const openPositions = safeNumber(portfolio.open_positions_count, 0);
+
+                    document.getElementById('paperTotalValue').textContent = formatCurrency(totalValue);
+                    document.getElementById('paperCash').textContent = formatCurrency(cashValue);
 
                     const pnlElement = document.getElementById('paperPnL');
-                    const pnlValue = portfolio.total_pnl_usd;
-                    pnlElement.textContent = `$${pnlValue.toFixed(2)} (${portfolio.total_pnl_pct.toFixed(2)}%)`;
-                    pnlElement.style.color = pnlValue >= 0 ? '#48bb78' : '#f56565';
+                    pnlElement.textContent = `${formatCurrency(pnlUsd)} (${formatPercent(pnlPct)})`;
+                    pnlElement.style.color = pnlUsd >= 0 ? '#48bb78' : '#f56565';
 
-                    document.getElementById('paperPositions').textContent = portfolio.open_positions_count;
+                    document.getElementById('paperPositions').textContent = openPositions.toString();
                 }
             } catch (error) {
                 console.error('Error loading paper portfolio:', error);
@@ -823,12 +843,12 @@
 
                 if (data.status === 'success') {
                     const metrics = data.metrics;
-                    document.getElementById('winRate').textContent = `${metrics.win_rate.toFixed(1)}%`;
-                    document.getElementById('totalTrades').textContent = metrics.total_trades;
-                    document.getElementById('profitFactor').textContent = metrics.profit_factor.toFixed(2);
-                    document.getElementById('avgGain').textContent = `${metrics.avg_gain_pct.toFixed(2)}%`;
-                    document.getElementById('avgLoss').textContent = `${metrics.avg_loss_pct.toFixed(2)}%`;
-                    document.getElementById('sharpeRatio').textContent = metrics.sharpe_ratio.toFixed(2);
+                    document.getElementById('winRate').textContent = formatPercent(metrics.win_rate || 0, 1);
+                    document.getElementById('totalTrades').textContent = safeNumber(metrics.total_trades, 0).toString();
+                    document.getElementById('profitFactor').textContent = safeNumber(metrics.profit_factor, 0).toFixed(2);
+                    document.getElementById('avgGain').textContent = formatPercent(metrics.avg_gain_pct || 0);
+                    document.getElementById('avgLoss').textContent = formatPercent(metrics.avg_loss_pct || 0);
+                    document.getElementById('sharpeRatio').textContent = safeNumber(metrics.sharpe_ratio, 0).toFixed(2);
                 }
             } catch (error) {
                 console.error('Error loading paper metrics:', error);
@@ -855,14 +875,19 @@
                     html += '</tr></thead><tbody>';
 
                     data.positions.forEach(pos => {
-                        const pnlColor = pos.current_pnl_pct >= 0 ? '#48bb78' : '#f56565';
+                        const entryPrice = safeNumber(pos.entry_price);
+                        const currentPrice = safeNumber(pos.current_price);
+                        const pnlPct = safeNumber(pos.current_pnl_pct);
+                        const sizeUsd = safeNumber(pos.quantity_usd);
+                        const remainingPct = safeNumber(pos.remaining_pct);
+                        const pnlColor = pnlPct >= 0 ? '#48bb78' : '#f56565';
                         html += `<tr style="border-bottom: 1px solid #2d3748;">`;
                         html += `<td style="padding: 10px;">${pos.symbol}</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">$${parseFloat(pos.entry_price).toFixed(8)}</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">$${parseFloat(pos.current_price).toFixed(8)}</td>`;
-                        html += `<td style="padding: 10px; text-align: right; color: ${pnlColor};">${pos.current_pnl_pct.toFixed(2)}%</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">$${parseFloat(pos.quantity_usd).toFixed(2)}</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">${parseFloat(pos.remaining_pct).toFixed(0)}%</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${entryPrice.toFixed(8)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${currentPrice.toFixed(8)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right; color: ${pnlColor};">${pnlPct.toFixed(2)}%</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${sizeUsd.toFixed(2)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">${remainingPct.toFixed(0)}%</td>`;
                         html += `</tr>`;
                     });
 
@@ -900,7 +925,10 @@
 
                     const newTradeIds = new Set();
                     data.trades.forEach(trade => {
-                        const pnlColor = trade.pnl_pct >= 0 ? '#48bb78' : '#f56565';
+                        const entryPrice = safeNumber(trade.entry_price);
+                        const exitPrice = safeNumber(trade.exit_price);
+                        const pnlPct = safeNumber(trade.pnl_pct);
+                        const pnlColor = pnlPct >= 0 ? '#48bb78' : '#f56565';
                         newTradeIds.add(trade.id);
 
                         // Check if this is a new trade (not in previous load)
@@ -926,9 +954,9 @@
 
                         html += `<tr class="${flashClass}" style="border-bottom: 1px solid #2d3748;">`;
                         html += `<td style="padding: 8px;">${trade.symbol}</td>`;
-                        html += `<td style="padding: 8px; text-align: right;">$${parseFloat(trade.entry_price).toFixed(8)}</td>`;
-                        html += `<td style="padding: 8px; text-align: right;">$${parseFloat(trade.exit_price).toFixed(8)}</td>`;
-                        html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${trade.pnl_pct.toFixed(2)}%</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">$${entryPrice.toFixed(8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">$${exitPrice.toFixed(8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${pnlPct.toFixed(2)}%</td>`;
                         html += `<td style="padding: 8px; text-align: center;"><span class="${badgeClass}">${trade.exit_type.replace(/_/g, ' ')}</span></td>`;
                         html += `<td style="padding: 8px; text-align: right;">${parseFloat(trade.hold_days).toFixed(1)}d</td>`;
                         html += `</tr>`;

@@ -126,7 +126,19 @@ SOCIAL_SENTIMENT_WEIGHT = 0.25  # 25% - BirdEye social metrics (increased from 1
 PAPER_TRADING_ENABLED = True  # Enable paper trading simulation
 PAPER_TRADING_INITIAL_BALANCE = 10000  # $10K starting capital
 PAPER_TRADING_POSITION_SIZE_USD = 100  # $100 per trade
-PAPER_TRADING_MAX_POSITIONS = 10  # Max concurrent positions
+
+_max_positions_env = os.getenv("PAPER_TRADING_MAX_POSITIONS")
+_parsed_max_positions = None
+if _max_positions_env is not None:
+    try:
+        _parsed_max_positions = int(_max_positions_env)
+    except ValueError:
+        _parsed_max_positions = None
+
+if _parsed_max_positions is not None and _parsed_max_positions <= 0:
+    _parsed_max_positions = None
+
+PAPER_TRADING_MAX_POSITIONS = _parsed_max_positions  # None = unlimited
 PAPER_TRADING_MIN_REVIVAL_SCORE = 0.7  # Minimum score to trade (0-1) - aligned with tighter opportunity threshold
 
 # Paper Trading Exit Strategy 🎯

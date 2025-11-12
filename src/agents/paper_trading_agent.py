@@ -62,7 +62,9 @@ class PaperTradingAgent:
         self._log("🤖 Paper Trading Agent initialized", 'info')
         self._log(f"   Initial Balance: ${config.PAPER_TRADING_INITIAL_BALANCE:,.2f}", 'info')
         self._log(f"   Position Size: ${config.PAPER_TRADING_POSITION_SIZE_USD:,.2f}", 'info')
-        self._log(f"   Max Positions: {config.PAPER_TRADING_MAX_POSITIONS}", 'info')
+        max_positions = config.PAPER_TRADING_MAX_POSITIONS
+        max_positions_text = max_positions if max_positions is not None else "Unlimited"
+        self._log(f"   Max Positions: {max_positions_text}", 'info')
         self._log(f"   Min Revival Score: {config.PAPER_TRADING_MIN_REVIVAL_SCORE}", 'info')
 
         # Auto-resume monitoring if we have existing open positions
