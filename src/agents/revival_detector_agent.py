@@ -304,8 +304,13 @@ class RevivalDetectorAgent:
             days_back = min(math.ceil(age_hours / 24), 30)  # Cap at 30 days for API limits
 
             # Choose timeframe based on token age for optimal granularity
-            if age_hours <= 1000:  # Less than 41 days
-                timeframe = '1H'  # 1-hour candles for fine detail
+            fifteen_day_hours = 15 * 24
+            forty_one_day_hours = 41 * 24
+
+            if age_hours <= fifteen_day_hours:  # < 15 days old
+                timeframe = '1H'  # 1-hour candles for newest revivals
+            elif age_hours <= forty_one_day_hours:  # 15-41 days
+                timeframe = '2H'  # 2-hour candles to balance detail vs. credit use
             elif age_hours <= 4000:  # 41-166 days (~5.5 months)
                 timeframe = '4H'  # 4-hour candles for longer history
             else:  # Over 166 days
@@ -577,80 +582,12 @@ class RevivalDetectorAgent:
 
     def check_smart_money(self, token_address: str) -> Tuple[float, Dict]:
         """
-        Check for smart money activity using BirdEye Top Traders API
+        Smart money check disabled to conserve BirdEye compute credits.
 
         Returns:
-            (score, details) - Score 0-1, details dictionary
+            (score, details) - Always (0.0, {'disabled': True})
         """
-        try:
-            print(colored(f"  💰 Checking smart money activity (BirdEye Top Traders)...", "yellow"))
-
-            # BirdEye Top Traders API
-            url = f"https://public-api.birdeye.so/defi/v2/tokens/top_traders?address={token_address}"
-            headers = {'X-API-KEY': os.getenv('BIRDEYE_API_KEY')}
-
-            response = requests.get(url, headers=headers, timeout=15)
-
-            if response.status_code != 200:
-                print(colored(f"    ⚠️ BirdEye Top Traders API error: HTTP {response.status_code}", "yellow"))
-                return 0.0, {'error': f'BirdEye API error: HTTP {response.status_code}'}
-
-            data = response.json()
-
-            if not data.get('success'):
-                print(colored(f"    ⚠️ BirdEye API returned success=false", "yellow"))
-                return 0.0, {'error': 'BirdEye API returned success=false'}
-
-            # Get top traders data
-            traders = data.get('data', {}).get('items', [])
-
-            if not traders:
-                print(colored(f"    ⚠️ No trader data available", "yellow"))
-                return 0.0, {'error': 'No trader data available'}
-
-            # Analyze whale wallets (>$100K holdings)
-            whale_wallets = 0
-            total_traders = len(traders[:20])  # Check top 20 traders
-            total_value_usd = 0
-
-            for trader in traders[:20]:
-                value_usd = float(trader.get('value_usd', 0))
-                total_value_usd += value_usd
-
-                # Consider wallet a "whale" if holdings > $100K
-                if value_usd > 100000:
-                    whale_wallets += 1
-
-            # Calculate average holding value
-            avg_holding_usd = total_value_usd / max(total_traders, 1)
-
-            # Calculate score based on whale wallet presence
-            # More whales = more smart money confidence
-            score = 0.0
-            if whale_wallets >= 5:
-                score = 1.0
-            elif whale_wallets >= 3:
-                score = 0.75
-            elif whale_wallets >= 2:
-                score = 0.5
-            elif whale_wallets >= 1:
-                score = 0.25
-
-            details = {
-                'whale_wallets': whale_wallets,
-                'total_traders_checked': total_traders,
-                'whale_percentage': (whale_wallets / max(total_traders, 1)) * 100,
-                'avg_holding_usd': avg_holding_usd,
-                'total_smart_money_usd': total_value_usd
-            }
-
-            print(colored(f"    🐋 Found {whale_wallets} whale wallets (>${100000:,})", "cyan"))
-
-            return score, details
-
-        except Exception as e:
-            print(colored(f"    ❌ Smart money check error: {str(e)}", "red"))
-            return 0.0, {'error': str(e)}
+        return 0.0, {'disabled': True}
 
     def calculate_revival_score(self, token_input) -> Dict:
         """
@@ -784,15 +721,13 @@ class RevivalDetectorAgent:
             # Determine why it failed
             if price_score < 0.25:
                 result['failure_reason'] = 'WEAK_PRICE_PATTERN'
-            elif smart_score < 0.2:
-                result['failure_reason'] = 'NO_SMART_MONEY'
             elif volume_score < 0.2:
                 result['failure_reason'] = 'LOW_VOLUME'
             else:
                 result['failure_reason'] = 'LOW_OVERALL_SCORE'
 
         # Always print component scores
-        print(colored(f"     Price: {price_score:.2f} | Smart: {smart_score:.2f} | Volume: {volume_score:.2f} | Social: {social_score:.2f}", "white"))
+        print(colored(f"     Price: {price_score:.2f} | Volume: {volume_score:.2f} | Social: {social_score:.2f}", "white"))
 
         return result
 

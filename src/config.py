@@ -104,7 +104,7 @@ BIRDEYE_USE_NATIVE_MEME_LIST = True  # Use native /defi/v3/token/meme/list (guar
 BIRDEYE_REQUEST_TIMEOUT = 15  # Seconds before BirdEye requests time out
 BIRDEYE_REQUEST_MAX_RETRIES = 3  # Number of times to retry failed BirdEye requests
 BIRDEYE_REQUEST_RETRY_DELAY = 5  # Base delay (seconds) between BirdEye retry attempts
-MIN_LIQUIDITY_PREFILTER = 30000  # $30K minimum liquidity (Phase 2 - BirdEye filter)
+MIN_LIQUIDITY_PREFILTER = 100_000  # $100K minimum liquidity (Phase 2 - BirdEye filter) aligned with BirdEye 15M CU plan targeting ~2h scans
 MIN_LIQUIDITY_STRICT = 50000  # $50K minimum liquidity (DEPRECATED - no longer used, kept for backward compatibility)
 MIN_VOLUME_1H = 500  # $500 minimum 1-hour volume (Phase 2 - applied via 24h volume estimation = $12K/day)
 MIN_AGE_HOURS = 72  # Minimum token age in hours (Phase 3 - 3 days, avoid early pump chaos)

@@ -1038,6 +1038,27 @@ class MemeScannerOrchestrator:
         # Export Phase 5 results to CSV for analysis
         self.export_phase5_results_csv(all_phase5_results)
 
+        # Log lightweight per-scan metrics for CU tracking
+        timeframe_buckets = {}
+        for result in all_phase5_results:
+            price_details = result.get('price_details') or {}
+            timeframe = price_details.get('timeframe')
+            if timeframe:
+                timeframe_buckets[timeframe] = timeframe_buckets.get(timeframe, 0) + 1
+
+        timeframe_summary = ', '.join(
+            f"{bucket}:{count}" for bucket, count in sorted(timeframe_buckets.items())
+        ) if timeframe_buckets else 'none'
+
+        metrics_message = (
+            "📊 Revival scan metrics | "
+            f"phase2={len(self.phase_tokens['phase2_prefiltered'])} | "
+            f"phase5={len(self.phase_tokens['phase5_revival_detected'])} | "
+            f"timeframes={timeframe_summary}"
+        )
+        self._log(metrics_message, 'info')
+        print(colored(metrics_message, "cyan"))
+
         # Send notifications
         if revival_results:
             print(colored("\n📤 Sending notifications...", "yellow", attrs=['bold']))

@@ -10,6 +10,33 @@ This is an experimental AI trading system that orchestrates 48+ specialized AI a
 
 **The main active project is the Revival Scanner** - a specialized system that identifies "second life" meme coin opportunities 72+ hours after launch using a 3-API hybrid architecture.
 
+### Quick Command Reference
+
+```bash
+# Start Revival Scanner with web dashboard (recommended)
+./start_webapp.sh
+# Access at: http://localhost:8080
+
+# Run single scan manually (testing)
+PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents \
+  python3 src/agents/meme_scanner_orchestrator.py --once
+
+# View paper trading performance
+python3 src/paper_trading/performance_analyzer.py
+
+# Test email notifications
+python3 src/paper_trading/email_notifier.py
+
+# Run tests
+PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents \
+  python3 test_revival_system.py
+```
+
+**Required Environment Variables** (in `.env`):
+- `BIRDEYE_API_KEY` - BirdEye API key (required for all Revival Scanner operations)
+- `RPC_ENDPOINT` or `HELIUS_RPC_ENDPOINT` - Full Helius RPC URL with API key
+- `EMAIL_PASSWORD` - Gmail App Password for paper trading notifications (optional)
+
 ## Recent Changes (Last 30 Days)
 
 ### November 2025 - Paper Trading System
@@ -53,6 +80,14 @@ This is an experimental AI trading system that orchestrates 48+ specialized AI a
 - Flash animations on new trades (green for profit, red for loss)
 - Auto-refresh every 2 minutes when tab is active
 - Performance metrics (win rate, profit factor, Sharpe ratio, max drawdown)
+
+**Operational Status:**
+- **Monitoring Active**: Only when web app is running (`./start_webapp.sh`)
+- **Position Persistence**: All positions survive server restarts (reloaded from CSV)
+- **Background Thread**: Checks prices every 30 seconds, triggers exits automatically
+- **Email Alerts**: Sent on position open/close if `EMAIL_PASSWORD` configured in .env
+- **Auto-Execution**: Opens new positions when scanner finds tokens with score ≥ 0.4
+- **Position Limit**: Respects `PAPER_TRADING_MAX_POSITIONS` limit (default 10)
 
 ### October 2025 - Revival Scanner Optimizations
 
@@ -153,9 +188,10 @@ If GoPlus consistently fails, your security filter is effectively **disabled**. 
 - **Caching**: 5-minute cache in `RevivalDetectorAgent` to reduce redundant API calls
 
 ### Key Components:
-- **Core Agents**: `revival_detector_agent.py`, `meme_scanner_orchestrator.py`, `stage1_security_filter.py`, `meme_notifier_agent.py`
+- **Core Agents**: `revival_detector_agent.py`, `meme_scanner_orchestrator.py`, `stage1_security_filter.py`, `meme_notifier_agent.py`, `paper_trading_agent.py`
 - **Utility Modules**: `src/helius_utils.py`, `src/dexscreener_utils.py`
-- **Web Dashboard**: `web_app.py` at http://localhost:8080 (port 8080, not 5000)
+- **Paper Trading Module**: `src/paper_trading/` (position_manager.py, performance_analyzer.py, email_notifier.py)
+- **Web Dashboard**: `web_app.py` at http://localhost:8080 (default port 8080, configurable via PORT env var)
 - **Documentation**:
   - `REVIVAL_SCANNER_PRD.md` - Complete strategy and product requirements
   - `QUICK_START_WEBAPP.md` - Get the web dashboard running in 2 minutes
@@ -285,6 +321,13 @@ python src/agents/risk_agent.py
 python src/agents/rbi_agent.py
 python src/agents/chat_agent.py
 # ... any agent in src/agents/ can run independently
+
+# Run Revival Scanner web dashboard
+./start_webapp.sh
+# Dashboard accessible at http://localhost:8080
+
+# Run Revival Scanner orchestrator directly (requires PYTHONPATH)
+PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents python3 src/agents/meme_scanner_orchestrator.py --once
 ```
 
 ### Backtesting
@@ -565,8 +608,8 @@ Per the "minimal error handling" principle, the code deliberately lets errors su
 
 1. **Virtual Environments**: NEVER create new venv/virtualenv - use `conda activate tflow` only
 2. **API Keys**: Ensure all required keys in .env (BirdEye + Helius mandatory for Revival Scanner)
-3. **Port Conflicts**: Web dashboard uses port 8080 - ensure not in use before starting
-4. **PYTHONPATH**: When running orchestrator manually, set PYTHONPATH to project root
+3. **Port Conflicts**: Web dashboard uses port 8080 by default - ensure not in use before starting (configurable via PORT env var)
+4. **PYTHONPATH**: When running orchestrator manually, must set: `PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents`
 5. **Config Sync**: After changing config.py, restart any running agents for changes to take effect
 6. **Temp Data**: Set `SAVE_OHLCV_DATA=True` in config.py to persist price data beyond session
 7. **BirdEye Response Structure**: Native meme list uses `data.items`, generic tokenlist uses `data.tokens`
@@ -575,6 +618,8 @@ Per the "minimal error handling" principle, the code deliberately lets errors su
 10. **Memory Leaks**: Long-running scans can accumulate memory in cache dicts and activity logs - restart periodically
 11. **Thread Safety**: `scanner_state` dict in web_app.py is accessed from multiple threads without locks
 12. **GoPlus Failures**: Security filter passes tokens by default if GoPlus API fails - verify API is working
+13. **Paper Trading Monitoring**: Background monitoring only active when web app is running - positions persist across restarts
+14. **Email Notifications**: Requires Gmail App Password in .env (`EMAIL_PASSWORD`), not regular password
 
 ## Data Directory Structure
 
@@ -615,11 +660,20 @@ src/data/
 - Backtest validation for RBI-generated strategies
 - Real-world API testing with `test_birdeye_api.py`
 
-Run tests manually:
+**Available Test Files:**
+- `test_revival_system.py` - Full 5-phase Revival Scanner pipeline test
+- `test_simple_revival.py` - Simplified revival pattern detection test
+- `test_birdeye_api.py` - BirdEye API integration tests
+- `test_birdeye_liquidity.py` - Liquidity filter validation
+- `test_birdeye_top_2000.py` - Top 2000 token fetching test
+- `test_phase5_scoring.py` - Revival scoring algorithm validation
+- `test_scoring_update.py` - Scoring weight update tests
+
+Run tests manually (PYTHONPATH required):
 ```bash
-python test_revival_system.py
-python test_simple_revival.py
-python test_birdeye_api.py
+PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents python3 test_revival_system.py
+PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents python3 test_simple_revival.py
+PYTHONPATH=/Users/eamonblackwell/Meme\ Coin\ Trading\ Bot/moon-dev-ai-agents python3 test_birdeye_api.py
 ```
 
 ## Performance and Scaling Considerations
@@ -691,3 +745,9 @@ The goal is to democratize AI agent development and show practical multi-agent o
 - Files kept under 800 lines (split if longer)
 - Standalone agents (each can run independently)
 - Configuration in `config.py` (centralized settings)
+
+### BirdEye CU Cadence (November 2025)
+- BirdEye plan upgraded to 15M CU/month; current revival scan (Phase 1-5) consumes ~160-180k CU per full pass when smart-money lookups are disabled.
+- Target run cadence remains every 2 hours, which keeps monthly consumption comfortably under 15M CU even with occasional retries.
+- If CU usage spikes (e.g., elevated retries/timeouts), stretch the scan interval to 6 hours temporarily; this drops consumption to roughly one-third while preserving coverage.
+- After each full day on the new plan, capture observed CU totals in ops notes so we can trend actual vs. expected usage and adjust cadence if needed.
