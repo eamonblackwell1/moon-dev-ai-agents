@@ -45,6 +45,21 @@ class PositionManager:
     def _default_log_error(message: str):
         print(message)
 
+    @staticmethod
+    def _to_native(value):
+        """Convert pandas/numpy scalars to native Python types."""
+        try:
+            import numpy as np  # noqa: F401
+            if isinstance(value, np.generic):
+                return value.item()
+        except Exception:
+            pass
+
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+
+        return value
+
     def __init__(self, log_fn=None, error_fn=None):
         """Initialize position manager with CSV file paths"""
         self._log = log_fn or self._default_log
@@ -125,6 +140,23 @@ class PositionManager:
             if len(df) > 0:
                 latest = df.iloc[-1]
                 self.cash_balance = float(latest['cash_usd'])
+                return
+
+        # Fallback: derive from initial balance minus deployed capital
+        open_positions = [
+            p for p in self.positions.values()
+            if p.get('status') == 'open'
+        ]
+        deployed = sum(
+            float(p.get('quantity_usd', 0)) * float(p.get('remaining_pct', 0)) / 100.0
+            for p in open_positions
+        )
+        self.cash_balance = max(config.PAPER_TRADING_INITIAL_BALANCE - deployed, 0)
+
+    def refresh_state(self):
+        """Reload positions and latest cash balance from disk."""
+        self.positions = self._load_positions()
+        self._load_portfolio_state()
 
     def _save_position(self, position: Dict):
         """Save or update a position in CSV"""
@@ -448,15 +480,36 @@ class PositionManager:
 
     def get_open_positions(self) -> List[Dict]:
         """Get all open positions"""
-        return [p for p in self.positions.values() if p['status'] == 'open']
+        self.refresh_state()
+        positions = []
+        for raw_position in self.positions.values():
+            if raw_position.get('status') != 'open':
+                continue
+
+            position = {key: self._to_native(value) for key, value in raw_position.items()}
+
+            for field in [
+                'entry_price', 'quantity_usd', 'remaining_pct', 'stop_loss_price',
+                'take_profit_1_price', 'take_profit_2_price', 'current_price',
+                'current_pnl_pct'
+            ]:
+                if field in position and position[field] not in (None, ""):
+                    try:
+                        position[field] = float(position[field])
+                    except (TypeError, ValueError):
+                        pass
+
+            positions.append(position)
+
+        return positions
 
     def get_portfolio_summary(self) -> Dict:
         """Get current portfolio summary"""
         open_positions = self.get_open_positions()
 
         positions_value = sum(
-            p['quantity_usd'] * p['remaining_pct'] / 100.0 *
-            (1 + p.get('current_pnl_pct', 0) / 100.0)
+            float(p.get('quantity_usd', 0)) * float(p.get('remaining_pct', 0)) / 100.0 *
+            (1 + float(p.get('current_pnl_pct', 0)) / 100.0)
             for p in open_positions
         )
 

@@ -109,6 +109,7 @@ class PaperTradingAgent:
                 continue
 
             # Check if already have a position
+            self.position_manager.refresh_state()
             existing_positions = self.position_manager.get_open_positions()
             if any(p['token_address'] == token_address for p in existing_positions):
                 self._log(f"⏭️  Skipping {symbol}: already have open position", 'info')

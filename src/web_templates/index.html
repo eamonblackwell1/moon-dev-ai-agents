@@ -200,19 +200,70 @@
         let autoRefresh = null;
         let activityRefresh = null;
 
+        const currencyFormatter = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+
+        const numberFormatters = {};
+
+        function getNumberFormatter(decimals = 2) {
+            if (!numberFormatters[decimals]) {
+                numberFormatters[decimals] = new Intl.NumberFormat('en-US', {
+                    minimumFractionDigits: decimals,
+                    maximumFractionDigits: decimals
+                });
+            }
+            return numberFormatters[decimals];
+        }
+
         function safeNumber(value, fallback = 0) {
             const num = Number(value);
             return Number.isFinite(num) ? num : fallback;
         }
 
+        function parseTimestamp(value) {
+            if (!value) {
+                return null;
+            }
+
+            let normalized = value.trim();
+            if (!/([zZ]|[+-]\d{2}:\d{2})$/.test(normalized)) {
+                normalized += 'Z';
+            }
+
+            const date = new Date(normalized);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
         function formatCurrency(value, decimals = 2) {
             const num = safeNumber(value);
-            return `$${num.toFixed(decimals)}`;
+            if (!Number.isFinite(num)) {
+                return currencyFormatter.format(0);
+            }
+            if (decimals !== 2) {
+                return new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    minimumFractionDigits: decimals,
+                    maximumFractionDigits: decimals
+                }).format(num);
+            }
+            return currencyFormatter.format(num);
         }
 
         function formatPercent(value, decimals = 2) {
             const num = safeNumber(value);
-            return `${num.toFixed(decimals)}%`;
+            const formatter = getNumberFormatter(decimals);
+            return `${formatter.format(num)}%`;
+        }
+
+        function formatNumber(value, decimals = 2) {
+            const num = safeNumber(value);
+            const formatter = getNumberFormatter(decimals);
+            return formatter.format(num);
         }
 
         // Load status on page load
@@ -250,15 +301,17 @@
                 document.getElementById('scanCount').textContent = data.scan_count;
 
                 if (data.last_scan_time) {
-                    const lastScan = new Date(data.last_scan_time);
+                    const lastScan = parseTimestamp(data.last_scan_time);
                     // Convert to Tokyo time (JST - UTC+9)
-                    document.getElementById('lastScan').textContent = lastScan.toLocaleTimeString('en-US', {
-                        timeZone: 'Asia/Tokyo',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                        hour12: false
-                    }) + ' JST';
+                    if (lastScan) {
+                        document.getElementById('lastScan').textContent = lastScan.toLocaleTimeString('en-US', {
+                            timeZone: 'Asia/Tokyo',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        }) + ' JST';
+                    }
                 }
 
                 // Update progress if scan is running
@@ -335,15 +388,18 @@
                 const div = document.createElement('div');
                 div.className = 'activity-item ' + (item.level || 'info');
 
-                const timestamp = new Date(item.timestamp);
+                const timestamp = parseTimestamp(item.timestamp);
                 // Convert to Tokyo time (JST - UTC+9)
-                const timeStr = timestamp.toLocaleTimeString('en-US', {
-                    timeZone: 'Asia/Tokyo',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: false
-                });
+                let timeStr = '--:--:--';
+                if (timestamp) {
+                    timeStr = timestamp.toLocaleTimeString('en-US', {
+                        timeZone: 'Asia/Tokyo',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    });
+                }
 
                 div.innerHTML = `
                     <span class="activity-timestamp">${timeStr}</span>
@@ -825,10 +881,11 @@
                     document.getElementById('paperCash').textContent = formatCurrency(cashValue);
 
                     const pnlElement = document.getElementById('paperPnL');
-                    pnlElement.textContent = `${formatCurrency(pnlUsd)} (${formatPercent(pnlPct)})`;
+                    const pnlPrefix = pnlUsd > 0 ? '+' : '';
+                    pnlElement.textContent = `${pnlPrefix}${formatCurrency(pnlUsd)} (${formatPercent(pnlPct)})`;
                     pnlElement.style.color = pnlUsd >= 0 ? '#48bb78' : '#f56565';
 
-                    document.getElementById('paperPositions').textContent = openPositions.toString();
+                    document.getElementById('paperPositions').textContent = formatNumber(openPositions, 0);
                 }
             } catch (error) {
                 console.error('Error loading paper portfolio:', error);
@@ -844,7 +901,7 @@
                 if (data.status === 'success') {
                     const metrics = data.metrics;
                     document.getElementById('winRate').textContent = formatPercent(metrics.win_rate || 0, 1);
-                    document.getElementById('totalTrades').textContent = safeNumber(metrics.total_trades, 0).toString();
+                    document.getElementById('totalTrades').textContent = formatNumber(metrics.total_trades || 0, 0);
                     document.getElementById('profitFactor').textContent = safeNumber(metrics.profit_factor, 0).toFixed(2);
                     document.getElementById('avgGain').textContent = formatPercent(metrics.avg_gain_pct || 0);
                     document.getElementById('avgLoss').textContent = formatPercent(metrics.avg_loss_pct || 0);
@@ -883,11 +940,11 @@
                         const pnlColor = pnlPct >= 0 ? '#48bb78' : '#f56565';
                         html += `<tr style="border-bottom: 1px solid #2d3748;">`;
                         html += `<td style="padding: 10px;">${pos.symbol}</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">$${entryPrice.toFixed(8)}</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">$${currentPrice.toFixed(8)}</td>`;
-                        html += `<td style="padding: 10px; text-align: right; color: ${pnlColor};">${pnlPct.toFixed(2)}%</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">$${sizeUsd.toFixed(2)}</td>`;
-                        html += `<td style="padding: 10px; text-align: right;">${remainingPct.toFixed(0)}%</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${formatNumber(entryPrice, 8)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">$${formatNumber(currentPrice, 8)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right; color: ${pnlColor};">${formatPercent(pnlPct)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">${formatCurrency(sizeUsd)}</td>`;
+                        html += `<td style="padding: 10px; text-align: right;">${formatNumber(remainingPct, 0)}%</td>`;
                         html += `</tr>`;
                     });
 
@@ -954,9 +1011,9 @@
 
                         html += `<tr class="${flashClass}" style="border-bottom: 1px solid #2d3748;">`;
                         html += `<td style="padding: 8px;">${trade.symbol}</td>`;
-                        html += `<td style="padding: 8px; text-align: right;">$${entryPrice.toFixed(8)}</td>`;
-                        html += `<td style="padding: 8px; text-align: right;">$${exitPrice.toFixed(8)}</td>`;
-                        html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${pnlPct.toFixed(2)}%</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">$${formatNumber(entryPrice, 8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">$${formatNumber(exitPrice, 8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${formatPercent(pnlPct)}</td>`;
                         html += `<td style="padding: 8px; text-align: center;"><span class="${badgeClass}">${trade.exit_type.replace(/_/g, ' ')}</span></td>`;
                         html += `<td style="padding: 8px; text-align: right;">${parseFloat(trade.hold_days).toFixed(1)}d</td>`;
                         html += `</tr>`;
