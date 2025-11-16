@@ -407,6 +407,29 @@ class PositionManager:
         entry_time = datetime.fromisoformat(position['entry_time'])
         hold_days = (datetime.now() - entry_time).total_seconds() / 86400
 
+        def _to_float(value):
+            try:
+                if value in (None, "", "nan", "NaN"):
+                    return None
+                num = float(value)
+                return num if math.isfinite(num) else None
+            except (TypeError, ValueError):
+                return None
+
+        entry_market_cap_value = _to_float(position.get('entry_market_cap'))
+        exit_market_cap_value = _to_float(position.get('current_market_cap'))
+        entry_price_value = _to_float(position.get('entry_price'))
+
+        if entry_market_cap_value is not None and entry_price_value:
+            try:
+                price_ratio = execution_price / entry_price_value if entry_price_value else None
+                if price_ratio and math.isfinite(price_ratio):
+                    exit_market_cap_value = entry_market_cap_value * price_ratio
+                    if not math.isfinite(exit_market_cap_value):
+                        exit_market_cap_value = None
+            except ZeroDivisionError:
+                pass
+
         # Create trade record
         trade_id = f"trade_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{position['token_address'][:8]}"
         trade = {
@@ -423,7 +446,9 @@ class PositionManager:
             'pnl_usd': net_pnl_usd,
             'pnl_pct': pnl_pct,
             'fees_paid': exit_fee,
-            'hold_days': hold_days
+            'hold_days': hold_days,
+            'entry_market_cap': entry_market_cap_value,
+            'exit_market_cap': exit_market_cap_value
         }
 
         # Update cash balance

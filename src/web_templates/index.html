@@ -306,6 +306,14 @@
             return Number.isFinite(num) ? num : fallback;
         }
 
+        function toFiniteNumber(value) {
+            if (value === null || value === undefined || value === '') {
+                return null;
+            }
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        }
+
         function parseTimestamp(value) {
             if (!value) {
                 return null;
@@ -1101,8 +1109,8 @@
                     let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
                     html += '<thead style="background: #2d3748;"><tr>';
                     html += '<th style="padding: 8px; text-align: left;">Symbol</th>';
-                    html += '<th style="padding: 8px; text-align: right;">Entry</th>';
-                    html += '<th style="padding: 8px; text-align: right;">Exit</th>';
+                    html += '<th style="padding: 8px; text-align: right;">Entry MC</th>';
+                    html += '<th style="padding: 8px; text-align: right;">Exit MC</th>';
                     html += '<th style="padding: 8px; text-align: right;">P&L</th>';
                     html += '<th style="padding: 8px; text-align: right;">P&L ($)</th>';
                     html += '<th style="padding: 8px; text-align: center;">Exit Type</th>';
@@ -1111,12 +1119,42 @@
 
                     const newTradeIds = new Set();
                     data.trades.forEach(trade => {
-                        const entryPrice = safeNumber(trade.entry_price);
-                        const exitPrice = safeNumber(trade.exit_price);
+                        const entryPrice = toFiniteNumber(trade.entry_price);
+                        const exitPrice = toFiniteNumber(trade.exit_price);
+                        const entryMarketCap = toFiniteNumber(trade.entry_market_cap);
+                        let exitMarketCap = toFiniteNumber(trade.exit_market_cap);
                         const pnlPct = safeNumber(trade.pnl_pct);
                         const pnlUsd = safeNumber(trade.pnl_usd);
                         const pnlColor = pnlPct >= 0 ? '#48bb78' : '#f56565';
+                        const exitType = (trade.exit_type || '').toString();
                         newTradeIds.add(trade.id);
+
+                        if ((exitMarketCap === null || exitMarketCap <= 0) &&
+                            entryMarketCap && entryMarketCap > 0 &&
+                            entryPrice && entryPrice > 0 &&
+                            exitPrice && exitPrice > 0) {
+                            const priceRatio = exitPrice / entryPrice;
+                            if (Number.isFinite(priceRatio) && priceRatio > 0) {
+                                exitMarketCap = entryMarketCap * priceRatio;
+                            }
+                        }
+
+                        const entryDisplay = entryMarketCap && entryMarketCap > 0
+                            ? formatCurrency(entryMarketCap, 0)
+                            : '—';
+                        const exitDisplay = exitMarketCap && exitMarketCap > 0
+                            ? formatCurrency(exitMarketCap, 0)
+                            : '—';
+
+                        let holdDisplay = '—';
+                        const holdDays = toFiniteNumber(trade.hold_days);
+                        if (holdDays !== null) {
+                            const holdHours = holdDays * 24;
+                            if (Number.isFinite(holdHours)) {
+                                const decimals = holdHours >= 100 ? 0 : 1;
+                                holdDisplay = `${getNumberFormatter(decimals).format(holdHours)}h`;
+                            }
+                        }
 
                         // Check if this is a new trade (not in previous load)
                         const isNewTrade = !previousTradeIds.has(trade.id);
@@ -1129,24 +1167,24 @@
 
                         // Determine badge class based on exit type
                         let badgeClass = 'exit-badge';
-                        if (trade.exit_type.includes('stop_loss')) {
+                        if (exitType.includes('stop_loss')) {
                             badgeClass += ' stop-loss';
-                        } else if (trade.exit_type.includes('take_profit')) {
+                        } else if (exitType.includes('take_profit')) {
                             badgeClass += ' take-profit';
-                        } else if (trade.exit_type === 'failed_exit') {
+                        } else if (exitType === 'failed_exit') {
                             badgeClass += ' failed';
-                        } else if (trade.exit_type === 'max_hold') {
+                        } else if (exitType === 'max_hold') {
                             badgeClass += ' expired';
                         }
 
                         html += `<tr class="${flashClass}" style="border-bottom: 1px solid #2d3748;">`;
                         html += `<td style="padding: 8px;">${trade.symbol}</td>`;
-                        html += `<td style="padding: 8px; text-align: right;">$${formatNumber(entryPrice, 8)}</td>`;
-                        html += `<td style="padding: 8px; text-align: right;">$${formatNumber(exitPrice, 8)}</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">${entryDisplay}</td>`;
+                        html += `<td style="padding: 8px; text-align: right;">${exitDisplay}</td>`;
                         html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${formatPercent(pnlPct)}</td>`;
                         html += `<td style="padding: 8px; text-align: right; color: ${pnlColor};">${formatCurrency(pnlUsd)}</td>`;
-                        html += `<td style="padding: 8px; text-align: center;"><span class="${badgeClass}">${trade.exit_type.replace(/_/g, ' ')}</span></td>`;
-                        html += `<td style="padding: 8px; text-align: right;">${parseFloat(trade.hold_days).toFixed(1)}d</td>`;
+                        html += `<td style="padding: 8px; text-align: center;"><span class="${badgeClass}">${exitType.replace(/_/g, ' ')}</span></td>`;
+                        html += `<td style="padding: 8px; text-align: right;">${holdDisplay}</td>`;
                         html += `</tr>`;
                     });
 
