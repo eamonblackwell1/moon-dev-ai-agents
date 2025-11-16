@@ -67,7 +67,7 @@ class ModelFactory:
         
         # Debug current environment without exposing values
         cprint("\n🔍 Environment Check:", "cyan")
-        for key in ["GROQ_API_KEY", "OPENAI_KEY", "ANTHROPIC_KEY", "DEEPSEEK_KEY", "GROK_API_KEY"]:  # GEMINI_KEY temporarily removed
+        for key in ["GROQ_API_KEY", "OPENAI_KEY", "OPENAI_API_KEY", "ANTHROPIC_KEY", "DEEPSEEK_KEY", "GROK_API_KEY"]:  # GEMINI_KEY temporarily removed
             value = os.getenv(key)
             if value and len(value.strip()) > 0:
                 cprint(f"  ├─ {key}: Found ({len(value)} chars)", "green")
@@ -79,7 +79,8 @@ class ModelFactory:
             cprint(f"\n🔄 Initializing {model_type} model...", "cyan")
             cprint(f"  ├─ Looking for {key_name}...", "cyan")
             
-            if api_key := os.getenv(key_name):
+            api_key = self._get_api_key_for_model(model_type, key_name)
+            if api_key:
                 try:
                     cprint(f"  ├─ Found {key_name} ({len(api_key)} chars)", "green")
                     cprint(f"  ├─ Getting model class for {model_type}...", "cyan")
@@ -216,6 +217,12 @@ class ModelFactory:
             "xai": "GROK_API_KEY",  # Grok/xAI uses GROK_API_KEY
             # Ollama doesn't need an API key as it runs locally
         }
+
+    def _get_api_key_for_model(self, model_type: str, primary_key_name: str) -> Optional[str]:
+        """Fetch API key for model type with sensible fallbacks."""
+        if model_type == "openai":
+            return os.getenv(primary_key_name) or os.getenv("OPENAI_API_KEY")
+        return os.getenv(primary_key_name)
     
     @property
     def available_models(self) -> Dict[str, list]:

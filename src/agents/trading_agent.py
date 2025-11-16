@@ -105,6 +105,7 @@ from src.config import *
 from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens
 from src.models.model_factory import model_factory
+from src.analytics import get_analytics_recorder
 
 # Load environment variables
 load_dotenv()
@@ -125,6 +126,8 @@ class TradingAgent:
         cprint(f"✅ Using model: {self.model.model_name}", "green")
 
         self.recommendations_df = pd.DataFrame(columns=['token', 'action', 'confidence', 'reasoning'])
+        self.analytics = get_analytics_recorder()
+        self.current_cycle_id: str = ""
         cprint("🤖 Moon Dev's LLM Trading Agent initialized!", "green")
 
     def chat_with_ai(self, system_prompt, user_content):
@@ -199,6 +202,14 @@ Strategy Signals Available:
                     'reasoning': reasoning
                 }])
             ], ignore_index=True)
+
+            self._record_signal_evaluation(
+                token=token,
+                action=action,
+                confidence=confidence,
+                reasoning=reasoning,
+                market_data=market_data,
+            )
             
             print(f"🎯 Moon Dev's AI Analysis Complete for {token[:4]}!")
             return response
@@ -215,7 +226,147 @@ Strategy Signals Available:
                     'reasoning': f"Error during analysis: {str(e)}"
                 }])
             ], ignore_index=True)
+            self._record_signal_evaluation(
+                token=token,
+                action="NOTHING",
+                confidence=0,
+                reasoning=f"Error during analysis: {str(e)}",
+                market_data=market_data,
+            )
             return None
+
+    # ------------------------------------------------------------------ #
+    # Analytics helper methods
+    # ------------------------------------------------------------------ #
+    def _analytics_ready(self) -> bool:
+        return getattr(self.analytics, "enabled", False) and bool(self.current_cycle_id)
+
+    def _summarize_market_dataframe(self, market_data):
+        summary = {}
+        try:
+            if hasattr(market_data, "empty") and not market_data.empty:
+                latest = market_data.iloc[-1]
+                summary["close"] = float(latest.get("Close", 0.0) or 0.0)
+                summary["volume"] = float(latest.get("Volume", 0.0) or 0.0)
+                if "Close" in market_data.columns and len(market_data) > 1:
+                    first_close = market_data["Close"].iloc[0]
+                    last_close = latest.get("Close", 0.0)
+                    if first_close:
+                        summary["change_pct_period"] = float(((last_close - first_close) / first_close) * 100)
+                summary["bar_count"] = int(len(market_data))
+        except Exception:
+            pass
+        return summary
+
+    def _extract_strategy_signals(self, market_data):
+        try:
+            if hasattr(market_data, "columns") and "strategy_signals" in market_data.columns:
+                series = market_data["strategy_signals"]
+                if hasattr(series, "dropna"):
+                    series = series.dropna()
+                if len(series) == 0:
+                    return None
+                value = series.iloc[-1]
+                if isinstance(value, (dict, list, str, int, float, bool)):
+                    return value
+                if hasattr(value, "to_dict"):
+                    return value.to_dict()
+                return str(value)
+        except Exception:
+            return None
+        return None
+
+    def _record_signal_evaluation(self, token, action, confidence, reasoning, market_data):
+        if not self._analytics_ready():
+            return
+        market_snapshot = self._summarize_market_dataframe(market_data)
+        strategy_signals = self._extract_strategy_signals(market_data)
+        try:
+            self.analytics.record_signal_evaluation(
+                cycle_id=self.current_cycle_id,
+                token=token,
+                action=action,
+                confidence=float(confidence) if confidence is not None else None,
+                reasoning=reasoning,
+                market_snapshot=market_snapshot,
+                strategy_context=strategy_signals if strategy_signals else None,
+            )
+        except Exception as exc:
+            print(f"[analytics] Failed to record signal for {token[:4]}: {exc}")
+
+    def _get_latest_recommendation(self, token):
+        if self.recommendations_df.empty:
+            return None
+        try:
+            matches = self.recommendations_df[self.recommendations_df['token'] == token]
+            if matches.empty:
+                return None
+            return matches.iloc[-1].to_dict()
+        except Exception:
+            return None
+
+    def _record_trade_execution(self, token, direction, before_usd, after_usd, target_usd=None, confidence=None, extra=None):
+        if not self._analytics_ready():
+            return
+
+        usd_delta = float(after_usd) - float(before_usd)
+        if abs(usd_delta) < 0.01:
+            return
+
+        try:
+            self.analytics.record_trade_execution(
+                cycle_id=self.current_cycle_id,
+                token=token,
+                direction=direction,
+                usd_delta=usd_delta,
+                before_usd=float(before_usd),
+                after_usd=float(after_usd),
+                target_usd=float(target_usd) if target_usd is not None else None,
+                confidence=float(confidence) if confidence is not None else None,
+                allocation_source="llm_allocation",
+                extra=extra or {},
+            )
+        except Exception as exc:
+            print(f"[analytics] Failed to record trade for {token[:4]}: {exc}")
+
+    def _capture_portfolio_snapshot(self, stage: str):
+        if not self._analytics_ready():
+            return
+
+        try:
+            holdings = n.fetch_wallet_holdings_og(address)
+            total_value = float(holdings['USD Value'].sum()) if not holdings.empty else 0.0
+            positions = []
+            if not holdings.empty:
+                for _, row in holdings.iterrows():
+                    try:
+                        positions.append({
+                            "token": row.get('Mint Address'),
+                            "amount": float(row.get('Amount', 0.0) or 0.0),
+                            "usd_value": float(row.get('USD Value', 0.0) or 0.0),
+                        })
+                    except Exception:
+                        continue
+            cash_entry = next((pos for pos in positions if pos.get("token") == USDC_ADDRESS), None)
+            cash_value = cash_entry.get("usd_value") if cash_entry else None
+
+            self.analytics.record_portfolio_snapshot(
+                cycle_id=self.current_cycle_id,
+                stage=stage,
+                total_value_usd=total_value,
+                cash_value_usd=cash_value,
+                positions=positions,
+            )
+        except Exception as exc:
+            try:
+                self.analytics.record_note(
+                    cycle_id=self.current_cycle_id,
+                    level="warning",
+                    message="Failed to capture portfolio snapshot",
+                    context={"stage": stage, "error": str(exc)},
+                )
+            except Exception:
+                print(f"[analytics] Snapshot capture failed at {stage}: {exc}")
     
     def allocate_portfolio(self):
         """Get AI-recommended portfolio allocation"""
@@ -295,7 +446,7 @@ Example format:
                 
                 try:
                     # Get current position value
-                    current_position = n.get_token_balance_usd(token)
+                    current_position = float(n.get_token_balance_usd(token))
                     target_allocation = amount
                     
                     print(f"🎯 Target allocation: ${target_allocation:.2f} USD")
@@ -305,17 +456,60 @@ Example format:
                         print(f"✨ Executing entry for {token}")
                         n.ai_entry(token, amount)
                         print(f"✅ Entry complete for {token}")
+                        updated_position = float(n.get_token_balance_usd(token))
+                        recommendation = self._get_latest_recommendation(token)
+                        confidence = recommendation.get("confidence") if recommendation else None
+                        self._record_trade_execution(
+                            token=token,
+                            direction="BUY",
+                            before_usd=current_position,
+                            after_usd=updated_position,
+                            target_usd=target_allocation,
+                            confidence=confidence,
+                            extra={"allocation_request": amount},
+                        )
                     else:
                         print(f"⏸️ Position already at target size for {token}")
+                        if self._analytics_ready():
+                            self.analytics.record_note(
+                                cycle_id=self.current_cycle_id,
+                                level="debug",
+                                message="Skipped entry - position already at target",
+                                context={
+                                    "token": token,
+                                    "current_position_usd": current_position,
+                                    "target_allocation_usd": target_allocation,
+                                },
+                            )
                     
                 except Exception as e:
                     print(f"❌ Error executing entry for {token}: {str(e)}")
+                    if self._analytics_ready():
+                        try:
+                            self.analytics.record_note(
+                                cycle_id=self.current_cycle_id,
+                                level="error",
+                                message="Error during allocation execution",
+                                context={"token": token, "error": str(e)},
+                            )
+                        except Exception:
+                            pass
                 
                 time.sleep(2)  # Small delay between entries
                 
         except Exception as e:
             print(f"❌ Error executing allocations: {str(e)}")
             print("🔧 Moon Dev suggests checking the logs and trying again!")
+            if self._analytics_ready():
+                try:
+                    self.analytics.record_note(
+                        cycle_id=self.current_cycle_id,
+                        level="error",
+                        message="Allocation execution loop failed",
+                        context={"error": str(e)},
+                    )
+                except Exception:
+                    pass
 
     def handle_exits(self):
         """Check and exit positions based on SELL or NOTHING recommendations"""
@@ -338,12 +532,48 @@ Example format:
                 cprint(f"💰 Current position: ${current_position:.2f}", "white", "on_blue")
                 try:
                     cprint(f"📉 Closing position with chunk_kill...", "white", "on_cyan")
+                    before_value = float(current_position)
                     n.chunk_kill(token, max_usd_order_size, slippage)
                     cprint(f"✅ Successfully closed position", "white", "on_green")
+                    after_value = float(n.get_token_balance_usd(token))
+                    confidence = row.get('confidence')
+                    self._record_trade_execution(
+                        token=token,
+                        direction="SELL",
+                        before_usd=before_value,
+                        after_usd=after_value,
+                        target_usd=0.0,
+                        confidence=confidence,
+                        extra={"trigger_action": action},
+                    )
                 except Exception as e:
                     cprint(f"❌ Error closing position: {str(e)}", "white", "on_red")
+                    if self._analytics_ready():
+                        try:
+                            self.analytics.record_note(
+                                cycle_id=self.current_cycle_id,
+                                level="error",
+                                message="Error while closing position",
+                                context={"token": token, "error": str(e)},
+                            )
+                        except Exception:
+                            pass
             elif current_position > 0:
                 cprint(f"✨ Keeping position for {token} (${current_position:.2f}) - AI recommends {action}", "white", "on_blue")
+                if self._analytics_ready():
+                    try:
+                        self.analytics.record_note(
+                            cycle_id=self.current_cycle_id,
+                            level="debug",
+                            message="Maintaining open position per recommendation",
+                            context={
+                                "token": token,
+                                "current_position_usd": current_position,
+                                "recommendation_action": action,
+                            },
+                        )
+                    except Exception:
+                        pass
 
     def parse_allocation_response(self, response):
         """Parse the AI's allocation response and handle both string and TextBlock formats"""
@@ -434,6 +664,19 @@ Example format:
 
     def run_trading_cycle(self, strategy_signals=None):
         """Run one complete trading cycle"""
+        analytics_enabled = getattr(self.analytics, "enabled", False)
+        cycle_status = "success"
+
+        if analytics_enabled:
+            cycle_metadata = {
+                "token_count": len(MONITORED_TOKENS),
+                "strategy_signals_provided": bool(strategy_signals),
+            }
+            self.current_cycle_id = self.analytics.start_cycle("live_trading_cycle", cycle_metadata)
+            self._capture_portfolio_snapshot(stage="pre_cycle")
+        else:
+            self.current_cycle_id = ""
+
         try:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cprint(f"\n⏰ AI Agent Run Starting at {current_time}", "white", "on_green")
@@ -463,6 +706,8 @@ Example format:
             
             # Handle exits first
             self.handle_exits()
+            if self._analytics_ready():
+                self._capture_portfolio_snapshot(stage="post_exits")
             
             # Then proceed with new allocations
             cprint("\n💰 Calculating optimal portfolio allocation...", "white", "on_blue")
@@ -474,9 +719,18 @@ Example format:
                 
                 cprint("\n🎯 Executing allocations...", "white", "on_blue")
                 self.execute_allocations(allocation)
+                if self._analytics_ready():
+                    self._capture_portfolio_snapshot(stage="post_allocations")
                 cprint("\n✨ All allocations executed!", "white", "on_blue")
             else:
                 cprint("\n⚠️ No allocations to execute!", "white", "on_yellow")
+                if self._analytics_ready():
+                    self.analytics.record_note(
+                        cycle_id=self.current_cycle_id,
+                        level="info",
+                        message="No allocations executed this cycle",
+                        context={"token_count": len(MONITORED_TOKENS)},
+                    )
             
             # Clean up temp data
             cprint("\n🧹 Cleaning up temporary data...", "white", "on_blue")
@@ -489,8 +743,34 @@ Example format:
                 cprint(f"⚠️ Error cleaning temp data: {str(e)}", "white", "on_yellow")
             
         except Exception as e:
+            cycle_status = "failed"
             cprint(f"\n❌ Error in trading cycle: {str(e)}", "white", "on_red")
             cprint("🔧 Moon Dev suggests checking the logs and trying again!", "white", "on_blue")
+            if self._analytics_ready():
+                try:
+                    self.analytics.record_note(
+                        cycle_id=self.current_cycle_id,
+                        level="error",
+                        message="Trading cycle encountered an error",
+                        context={"error": str(e)},
+                    )
+                except Exception:
+                    pass
+        finally:
+            if analytics_enabled and self.current_cycle_id:
+                try:
+                    self._capture_portfolio_snapshot(stage="post_cycle")
+                finally:
+                    try:
+                        self.analytics.end_cycle(
+                            self.current_cycle_id,
+                            metadata={
+                                "status": cycle_status,
+                                "recommendations_logged": int(len(self.recommendations_df)),
+                            },
+                        )
+                    finally:
+                        self.current_cycle_id = ""
 
 def main():
     """Main function to run the trading agent every 15 minutes"""

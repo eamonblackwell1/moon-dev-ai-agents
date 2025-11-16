@@ -5,6 +5,18 @@ Built with love by Moon Dev 🚀
 
 import os
 
+# ---------------------------------------------------------------------------
+# Environment normalization
+# ---------------------------------------------------------------------------
+# Some environments (including our docs) use OPENAI_API_KEY while the legacy
+# code expected OPENAI_KEY. Mirror the value so downstream modules continue
+# to work without manual edits.
+_openai_key = os.getenv("OPENAI_KEY")
+_openai_api_key = os.getenv("OPENAI_API_KEY")
+if not _openai_key and _openai_api_key:
+    os.environ["OPENAI_KEY"] = _openai_api_key
+    _openai_key = _openai_api_key
+
 # 💰 Trading Configuration
 USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # Never trade or close
 SOL_ADDRESS = "So11111111111111111111111111111111111111111"   # Never trade or close
@@ -78,6 +90,26 @@ sell_over = 1
 DAYSBACK_4_DATA = 3
 DATA_TIMEFRAME = '1H'  # 1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 8H, 12H, 1D, 3D, 1W, 1M
 SAVE_OHLCV_DATA = False  # 🌙 Set to True to save data permanently, False will only use temp data during run
+
+# Analytics & reporting settings 📊
+DEFAULT_ANALYTICS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "data", "analytics"))
+ANALYTICS_DATA_DIR = os.getenv("ANALYTICS_DATA_DIR", DEFAULT_ANALYTICS_DIR)
+ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+ANALYTICS_MAX_FILE_SIZE_BYTES = int(os.getenv("ANALYTICS_MAX_FILE_SIZE_BYTES", "5242880"))  # 5 MB rollover
+ANALYTICS_SNAPSHOT_TOKEN_LIMIT = int(os.getenv("ANALYTICS_SNAPSHOT_TOKEN_LIMIT", "50"))
+ANALYTICS_DEFAULT_ROLLUP_DAYS = int(os.getenv("ANALYTICS_DEFAULT_ROLLUP_DAYS", "7"))
+ANALYTICS_REPORTS_DIR = os.getenv("ANALYTICS_REPORTS_DIR", os.path.join(ANALYTICS_DATA_DIR, "reports"))
+ANALYTICS_REPORTING_ENABLED = os.getenv("ANALYTICS_REPORTING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+ANALYTICS_REPORT_TIMEZONE = os.getenv("ANALYTICS_REPORT_TIMEZONE", "UTC")
+ANALYTICS_DAILY_REPORT_TIME = os.getenv("ANALYTICS_DAILY_REPORT_TIME", "23:59")
+ANALYTICS_DAILY_SUMMARY_DAYS = int(os.getenv("ANALYTICS_DAILY_SUMMARY_DAYS", "1"))
+ANALYTICS_WEEKLY_REPORT_DAY = int(os.getenv("ANALYTICS_WEEKLY_REPORT_DAY", "6"))  # 0=Monday ... 6=Sunday
+ANALYTICS_WEEKLY_REPORT_TIME = os.getenv("ANALYTICS_WEEKLY_REPORT_TIME", "20:00")
+ANALYTICS_WEEKLY_SUMMARY_DAYS = int(os.getenv("ANALYTICS_WEEKLY_SUMMARY_DAYS", "7"))
+ANALYTICS_REPORT_MODEL_TYPE = os.getenv("ANALYTICS_REPORT_MODEL_TYPE", "openai")
+ANALYTICS_REPORT_MODEL_NAME = os.getenv("ANALYTICS_REPORT_MODEL_NAME", "gpt-5")
+ANALYTICS_REPORT_MAX_OUTPUT_TOKENS = int(os.getenv("ANALYTICS_REPORT_MAX_OUTPUT_TOKENS", "1024"))
+ANALYTICS_REPORT_TONE = os.getenv("ANALYTICS_REPORT_TONE", "concise")
 
 # AI Model Settings 🤖
 AI_MODEL = "claude-3-haiku-20240307"  # Model Options:

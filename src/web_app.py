@@ -30,8 +30,14 @@ from src.config import (
     MIN_LIQUIDITY_STRICT,
     MIN_VOLUME_1H,
     MIN_AGE_HOURS,
-    MAX_MARKET_CAP
+    MAX_MARKET_CAP,
+    ANALYTICS_ENABLED,
+    ANALYTICS_DATA_DIR,
+    ANALYTICS_DEFAULT_ROLLUP_DAYS,
+    ANALYTICS_REPORTING_ENABLED,
 )
+from src.analytics.reporting import generate_period_summary
+from src.analytics import AnalyticsReporter, AnalyticsReportScheduler
 
 app = Flask(__name__,
             template_folder='web_templates',
@@ -67,6 +73,23 @@ scanner_state = {
 
 scanner_thread = None
 orchestrator = None
+
+# Analytics reporter/scheduler
+analytics_reporter = None
+analytics_scheduler = None
+
+if ANALYTICS_ENABLED:
+    try:
+        analytics_reporter = AnalyticsReporter()
+        if ANALYTICS_REPORTING_ENABLED:
+            # Avoid double-start when Flask dev reloader spins up the loader process.
+            if os.getenv("WERKZEUG_RUN_MAIN") in (None, "true", "True"):
+                analytics_scheduler = AnalyticsReportScheduler(analytics_reporter)
+                analytics_scheduler.start()
+    except Exception as exc:
+        print(f"⚠️ Analytics reporter initialization failed: {exc}")
+        analytics_reporter = None
+        analytics_scheduler = None
 
 # Persistence file paths
 # Railway volume is mounted at /app/src/data (see railway.toml)
@@ -414,6 +437,91 @@ def get_results():
         'filtered': len(filtered_results),
         'data_source': data_source,
         'last_scan_time': scanner_state['last_scan_time']
+    })
+
+
+@app.route('/api/analytics/summary')
+def get_analytics_summary():
+    """Expose trading analytics summary for the dashboard."""
+    if not ANALYTICS_ENABLED:
+        return jsonify({
+            'enabled': False,
+            'message': 'Analytics pipeline is disabled. Set ANALYTICS_ENABLED to true to activate.',
+        })
+
+    days = request.args.get('days', ANALYTICS_DEFAULT_ROLLUP_DAYS, type=int)
+    days = max(1, days)
+
+    try:
+        summary = generate_period_summary(
+            days=days,
+            analytics_dir=Path(ANALYTICS_DATA_DIR),
+        )
+        summary['enabled'] = True
+        summary['period']['requested_days'] = days
+
+        if analytics_reporter:
+            summary['reports'] = {
+                'daily': analytics_reporter.load_latest_report('daily'),
+                'weekly': analytics_reporter.load_latest_report('weekly'),
+                'reporting_enabled': ANALYTICS_REPORTING_ENABLED,
+            }
+
+        return jsonify(summary)
+    except Exception as exc:
+        return jsonify({
+            'enabled': True,
+            'error': str(exc),
+        }), 500
+
+
+@app.route('/api/analytics/reports')
+def get_analytics_reports():
+    """Return latest analytics reports (daily/weekly)."""
+    if not ANALYTICS_ENABLED:
+        return jsonify({'enabled': False, 'message': 'Analytics disabled.'}), 400
+    if not analytics_reporter:
+        return jsonify({'enabled': True, 'reporting_available': False}), 200
+
+    report_type = request.args.get('type', 'daily').lower()
+    limit = request.args.get('limit', 5, type=int)
+    limit = max(1, min(limit, 20))
+
+    latest = analytics_reporter.load_latest_report(report_type)
+    history = analytics_reporter.list_reports(report_type, limit=limit)
+
+    return jsonify({
+        'enabled': True,
+        'report_type': report_type,
+        'latest': latest,
+        'history': history,
+        'reporting_enabled': ANALYTICS_REPORTING_ENABLED,
+    })
+
+
+@app.route('/api/analytics/reports/run', methods=['POST'])
+def run_analytics_report():
+    """Manually trigger the generation of an analytics report."""
+    if not ANALYTICS_ENABLED or not analytics_reporter:
+        return jsonify({'error': 'Analytics reporting not available.'}), 400
+
+    payload = request.get_json(silent=True) or {}
+    report_type = payload.get('type', 'daily').lower()
+
+    if report_type not in {'daily', 'weekly'}:
+        return jsonify({'error': f'Unsupported report type: {report_type}'}), 400
+
+    if analytics_scheduler:
+        report = analytics_scheduler.trigger_report(report_type)
+    else:
+        report = analytics_reporter.generate_report(report_type)
+
+    if not report:
+        return jsonify({'error': 'Failed to generate report.'}), 500
+
+    return jsonify({
+        'status': 'generated',
+        'report': report,
     })
 
 @app.route('/api/scan/start', methods=['POST'])

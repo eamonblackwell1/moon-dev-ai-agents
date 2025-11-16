@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
     <div class="container">
@@ -115,6 +116,9 @@
             <button class="tab-btn" onclick="switchTab('paper')" id="paperTab" style="padding: 12px 24px; background: #2d3748; color: #a0aec0; border: none; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 600; transition: all 0.3s;">
                 💰 Paper Trading
             </button>
+            <button class="tab-btn" onclick="switchTab('analytics')" id="analyticsTab" style="padding: 12px 24px; background: #2d3748; color: #a0aec0; border: none; border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 600; transition: all 0.3s;">
+                📊 Analytics
+            </button>
         </div>
 
         <!-- Scanner Results Tab -->
@@ -194,11 +198,89 @@
                 </div>
             </div>
         </div>
+
+        <!-- Analytics Tab -->
+        <div id="analyticsTabContent" class="tab-content" style="display: none;">
+            <div class="stats" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-label">Return %</div>
+                    <div class="stat-value" id="analyticsReturnPct">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Absolute PnL</div>
+                    <div class="stat-value" id="analyticsAbsPnl">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Max Drawdown</div>
+                    <div class="stat-value" id="analyticsDrawdown">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Trades (Buy/Sell)</div>
+                    <div class="stat-value" id="analyticsTrades">--</div>
+                </div>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Portfolio Value (Rolling)</h3>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn" onclick="loadAnalyticsOverview()">Refresh</button>
+                        <button class="btn btn-primary" onclick="triggerAnalyticsReport('daily')">Run Daily Report</button>
+                        <button class="btn btn-primary" onclick="triggerAnalyticsReport('weekly')">Run Weekly Report</button>
+                    </div>
+                </div>
+                <div style="padding: 20px;">
+                    <canvas id="analyticsPerformanceChart" height="160"></canvas>
+                    <p style="margin-top: 12px; color: #a0aec0;" id="analyticsPeriodLabel"></p>
+                </div>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Top Token Flows</h3>
+                    <button class="btn" onclick="loadAnalyticsOverview()">Refresh</button>
+                </div>
+                <div id="analyticsTokenFlows" style="padding: 20px;">
+                    <div class="empty-state"><p>Enable analytics to view token flow breakdowns.</p></div>
+                </div>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Recent Trades</h3>
+                    <button class="btn" onclick="loadAnalyticsOverview()">Refresh</button>
+                </div>
+                <div id="analyticsRecentTrades" style="padding: 20px;">
+                    <div class="empty-state"><p>No trades recorded in the selected window.</p></div>
+                </div>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Daily Summary</h3>
+                    <button class="btn" onclick="triggerAnalyticsReport('daily')">Regenerate</button>
+                </div>
+                <div id="analyticsDailySummary" style="padding: 20px;">
+                    <div class="empty-state"><p>No daily summary yet.</p></div>
+                </div>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Weekly Summary</h3>
+                    <button class="btn" onclick="triggerAnalyticsReport('weekly')">Regenerate</button>
+                </div>
+                <div id="analyticsWeeklySummary" style="padding: 20px;">
+                    <div class="empty-state"><p>No weekly summary yet.</p></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         let autoRefresh = null;
         let activityRefresh = null;
+        let analyticsChart = null;
 
         const currencyFormatter = new Intl.NumberFormat('en-US', {
             style: 'currency',
@@ -829,6 +911,7 @@
 
         // Auto-refresh paper trading every 2 minutes (when tab is active)
         let paperTradingRefreshInterval = null;
+        let analyticsRefreshInterval = null;
 
         function startPaperTradingAutoRefresh() {
             if (!paperTradingRefreshInterval) {
@@ -848,35 +931,53 @@
             }
         }
 
+        function startAnalyticsAutoRefresh() {
+            if (!analyticsRefreshInterval) {
+                analyticsRefreshInterval = setInterval(() => {
+                    const analyticsContent = document.getElementById('analyticsTabContent');
+                    if (analyticsContent && analyticsContent.style.display !== 'none') {
+                        loadAnalyticsOverview();
+                    }
+                }, 180000); // 3 minutes
+            }
+        }
+
+        function stopAnalyticsAutoRefresh() {
+            if (analyticsRefreshInterval) {
+                clearInterval(analyticsRefreshInterval);
+                analyticsRefreshInterval = null;
+            }
+        }
+
         // ==================== PAPER TRADING FUNCTIONS ====================
 
         // Switch tabs
         function switchTab(tab) {
-            // Update tab buttons
-            const scannerTab = document.getElementById('scannerTab');
-            const paperTab = document.getElementById('paperTab');
-            const scannerContent = document.getElementById('scannerTabContent');
-            const paperContent = document.getElementById('paperTabContent');
+            const tabs = [
+                { key: 'scanner', button: document.getElementById('scannerTab'), content: document.getElementById('scannerTabContent') },
+                { key: 'paper', button: document.getElementById('paperTab'), content: document.getElementById('paperTabContent') },
+                { key: 'analytics', button: document.getElementById('analyticsTab'), content: document.getElementById('analyticsTabContent') }
+            ];
 
-            if (tab === 'scanner') {
-                scannerTab.style.background = '#667eea';
-                scannerTab.style.color = 'white';
-                paperTab.style.background = '#2d3748';
-                paperTab.style.color = '#a0aec0';
-                scannerContent.style.display = 'block';
-                paperContent.style.display = 'none';
-                stopPaperTradingAutoRefresh();
-            } else {
-                scannerTab.style.background = '#2d3748';
-                scannerTab.style.color = '#a0aec0';
-                paperTab.style.background = '#667eea';
-                paperTab.style.color = 'white';
-                scannerContent.style.display = 'none';
-                paperContent.style.display = 'block';
+            tabs.forEach(({ key, button, content }) => {
+                if (!button || !content) return;
+                const isActive = key === tab;
+                button.style.background = isActive ? '#667eea' : '#2d3748';
+                button.style.color = isActive ? 'white' : '#a0aec0';
+                content.style.display = isActive ? 'block' : 'none';
+            });
 
-                // Load paper trading data when tab opens
+            if (tab === 'paper') {
                 refreshPaperTrading();
                 startPaperTradingAutoRefresh();
+                stopAnalyticsAutoRefresh();
+            } else if (tab === 'analytics') {
+                loadAnalyticsOverview();
+                startAnalyticsAutoRefresh();
+                stopPaperTradingAutoRefresh();
+            } else {
+                stopPaperTradingAutoRefresh();
+                stopAnalyticsAutoRefresh();
             }
         }
 
@@ -1060,6 +1161,282 @@
                 }
             } catch (error) {
                 console.error('Error loading paper trades:', error);
+            }
+        }
+
+        // ==================== ANALYTICS FUNCTIONS ====================
+
+        async function loadAnalyticsOverview() {
+            try {
+                const response = await fetch('/api/analytics/summary');
+                const data = await response.json();
+
+                if (!data.enabled) {
+                    renderNarrative(null, 'analyticsDailySummary');
+                    renderNarrative(null, 'analyticsWeeklySummary');
+                    document.getElementById('analyticsReturnPct').textContent = '--';
+                    document.getElementById('analyticsAbsPnl').textContent = '--';
+                    document.getElementById('analyticsDrawdown').textContent = '--';
+                    document.getElementById('analyticsTrades').textContent = '--';
+                    document.getElementById('analyticsTokenFlows').innerHTML = '<div class="empty-state"><p>Analytics pipeline disabled.</p></div>';
+                    document.getElementById('analyticsRecentTrades').innerHTML = '<div class="empty-state"><p>Analytics pipeline disabled.</p></div>';
+                    document.getElementById('analyticsPeriodLabel').textContent = '';
+                    updateAnalyticsChart([], 0);
+                    return;
+                }
+
+                const performance = data.performance || {};
+                const trading = data.trading || {};
+                const period = data.period || {};
+
+                document.getElementById('analyticsReturnPct').textContent = formatPercent(performance.return_pct || 0, 2);
+                document.getElementById('analyticsAbsPnl').textContent = formatCurrency(performance.absolute_return_usd || 0);
+                document.getElementById('analyticsDrawdown').textContent = formatPercent(performance.max_drawdown_pct || 0, 2);
+                document.getElementById('analyticsTrades').textContent = `${formatNumber(trading.total_trades || 0, 0)} (${formatNumber(trading.buy_count || 0, 0)}/${formatNumber(trading.sell_count || 0, 0)})`;
+
+                const periodStart = parseTimestamp(period.start);
+                const periodEnd = parseTimestamp(period.end);
+                if (periodStart && periodEnd) {
+                    document.getElementById('analyticsPeriodLabel').textContent =
+                        `Covering ${periodStart.toLocaleString('en-US')} → ${periodEnd.toLocaleString('en-US')} (${period.days || data.period.requested_days || 0} days)`;
+                } else {
+                    document.getElementById('analyticsPeriodLabel').textContent = '';
+                }
+
+                renderAnalyticsTokenFlows(trading.flow_by_token_usd || {});
+                renderAnalyticsTrades(trading.recent || []);
+                updateAnalyticsChart((data.portfolio && data.portfolio.series) || [], period.days || data.period.requested_days || 0);
+
+                const reports = data.reports || {};
+                if (reports.daily) {
+                    renderNarrative(reports.daily, 'analyticsDailySummary');
+                } else {
+                    renderNarrative(null, 'analyticsDailySummary');
+                }
+                if (reports.weekly) {
+                    renderNarrative(reports.weekly, 'analyticsWeeklySummary');
+                } else {
+                    renderNarrative(null, 'analyticsWeeklySummary');
+                }
+            } catch (error) {
+                console.error('Error loading analytics overview:', error);
+            }
+        }
+
+        function updateAnalyticsChart(series, labelDays = 0) {
+            const canvas = document.getElementById('analyticsPerformanceChart');
+            if (!canvas || typeof Chart === 'undefined') {
+                return;
+            }
+
+            if (!Array.isArray(series) || series.length === 0) {
+                if (analyticsChart) {
+                    analyticsChart.destroy();
+                    analyticsChart = null;
+                }
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                return;
+            }
+
+            const labels = [];
+            const equityValues = [];
+            const cashValues = [];
+
+            series.forEach(point => {
+                const ts = parseTimestamp(point.timestamp);
+                labels.push(ts ? ts.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : point.timestamp);
+                equityValues.push(safeNumber(point.total_value_usd));
+                cashValues.push(safeNumber(point.cash_value_usd));
+            });
+
+            const ctx = canvas.getContext('2d');
+            if (analyticsChart) {
+                analyticsChart.data.labels = labels;
+                analyticsChart.data.datasets[0].data = equityValues;
+                analyticsChart.data.datasets[1].data = cashValues;
+                analyticsChart.update();
+            } else {
+                analyticsChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                label: 'Total Value (USD)',
+                                data: equityValues,
+                                borderColor: '#667eea',
+                                backgroundColor: 'rgba(102, 126, 234, 0.15)',
+                                tension: 0.2,
+                                fill: true,
+                            },
+                            {
+                                label: 'Cash Value (USD)',
+                                data: cashValues,
+                                borderColor: '#63b3ed',
+                                backgroundColor: 'rgba(99, 179, 237, 0.1)',
+                                tension: 0.2,
+                                fill: true,
+                            }
+                        ]
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                labels: { color: '#e2e8f0' }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                ticks: { color: '#a0aec0', maxRotation: 45, minRotation: 45 },
+                                grid: { color: 'rgba(160, 174, 192, 0.15)' }
+                            },
+                            y: {
+                                ticks: {
+                                    color: '#a0aec0',
+                                    callback: value => formatCurrency(value)
+                                },
+                                grid: { color: 'rgba(160, 174, 192, 0.1)' }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function renderAnalyticsTokenFlows(flowByToken) {
+            const container = document.getElementById('analyticsTokenFlows');
+            const entries = Object.entries(flowByToken || {}).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 5);
+
+            if (!entries.length) {
+                container.innerHTML = '<div class="empty-state"><p>No token flow data yet.</p></div>';
+                return;
+            }
+
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
+            html += '<thead style="background: #2d3748;"><tr>';
+            html += '<th style="padding: 10px; text-align: left;">Token</th>';
+            html += '<th style="padding: 10px; text-align: right;">Net Flow (USD)</th>';
+            html += '</tr></thead><tbody>';
+
+            entries.forEach(([token, amount]) => {
+                const display = token.length > 10 ? `${token.slice(0, 4)}…${token.slice(-4)}` : token;
+                const color = amount >= 0 ? '#48bb78' : '#f56565';
+                html += `<tr style="border-bottom: 1px solid #2d3748;">
+                    <td style="padding: 10px;">${display}</td>
+                    <td style="padding: 10px; text-align: right; color: ${color};">${formatCurrency(amount)}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderAnalyticsTrades(trades) {
+            const container = document.getElementById('analyticsRecentTrades');
+            if (!Array.isArray(trades) || trades.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No trades recorded during this period.</p></div>';
+                return;
+            }
+
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
+            html += '<thead style="background: #2d3748;"><tr>';
+            html += '<th style="padding: 8px; text-align: left;">Time</th>';
+            html += '<th style="padding: 8px; text-align: left;">Token</th>';
+            html += '<th style="padding: 8px; text-align: center;">Direction</th>';
+            html += '<th style="padding: 8px; text-align: right;">Δ USD</th>';
+            html += '<th style="padding: 8px; text-align: right;">After</th>';
+            html += '</tr></thead><tbody>';
+
+            trades.slice(0, 8).forEach(trade => {
+                const ts = parseTimestamp(trade.timestamp);
+                const timeLabel = ts ? ts.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : trade.timestamp;
+                const token = trade.token ? `${trade.token.slice(0, 4)}…${trade.token.slice(-4)}` : '—';
+                const delta = safeNumber(trade.usd_delta, 0);
+                const color = delta >= 0 ? '#48bb78' : '#f56565';
+                html += `<tr style="border-bottom: 1px solid #2d3748;">
+                    <td style="padding: 8px;">${timeLabel}</td>
+                    <td style="padding: 8px;">${token}</td>
+                    <td style="padding: 8px; text-align: center;">${trade.direction || '—'}</td>
+                    <td style="padding: 8px; text-align: right; color: ${color};">${formatCurrency(delta)}</td>
+                    <td style="padding: 8px; text-align: right;">${formatCurrency(trade.after_usd || 0)}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function renderNarrative(report, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (!report || !report.narrative) {
+                container.innerHTML = '<div class="empty-state"><p>No summary generated yet.</p></div>';
+                return;
+            }
+
+            const narrative = report.narrative;
+            const generatedAt = parseTimestamp(report.generated_at);
+            let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+
+            html += `<div>
+                <div style="font-size: 1.2rem; font-weight: 600; color: #edf2f7;">${narrative.headline || 'Performance Update'}</div>
+                <div style="color: #a0aec0; font-size: 0.9rem;">${generatedAt ? generatedAt.toLocaleString('en-US') : ''}</div>
+            </div>`;
+
+            if (narrative.summary) {
+                html += `<p style="color: #e2e8f0;">${narrative.summary}</p>`;
+            }
+
+            if (Array.isArray(narrative.key_takeaways) && narrative.key_takeaways.length) {
+                html += '<div><strong>Key Takeaways</strong><ul>';
+                narrative.key_takeaways.forEach(item => {
+                    html += `<li style="margin-left: 20px; color: #e2e8f0;">${item}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            if (Array.isArray(narrative.risk_notes) && narrative.risk_notes.length) {
+                html += '<div><strong>Risks</strong><ul>';
+                narrative.risk_notes.forEach(item => {
+                    html += `<li style="margin-left: 20px; color: #f6ad55;">${item}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            if (Array.isArray(narrative.next_actions) && narrative.next_actions.length) {
+                html += '<div><strong>Next Actions</strong><ul>';
+                narrative.next_actions.forEach(item => {
+                    html += `<li style="margin-left: 20px; color: #63b3ed;">${item}</li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            html += `<div style="color: #718096; font-size: 0.85rem;">
+                Tone: ${narrative.tone || 'neutral'} · Model: ${(report.model && report.model.name) || 'N/A'}
+            </div>`;
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        async function triggerAnalyticsReport(type) {
+            try {
+                const response = await fetch('/api/analytics/reports/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('Failed to trigger report:', errorData);
+                    return;
+                }
+                await loadAnalyticsOverview();
+            } catch (error) {
+                console.error('Error triggering analytics report:', error);
             }
         }
     </script>
