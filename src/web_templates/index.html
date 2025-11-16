@@ -237,11 +237,46 @@
 
             <div class="activity-feed">
                 <div class="activity-header">
-                    <h3>Top Token Flows</h3>
+                    <h3>Market Regime</h3>
                     <button class="btn" onclick="loadAnalyticsOverview()">Refresh</button>
                 </div>
-                <div id="analyticsTokenFlows" style="padding: 20px;">
-                    <div class="empty-state"><p>Enable analytics to view token flow breakdowns.</p></div>
+                <div id="analyticsMarketRegime" style="padding: 20px;">
+                    <div class="empty-state"><p>Enable analytics to evaluate market regime.</p></div>
+                </div>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-header">
+                    <h3>Capital Flow Rollups</h3>
+                    <button class="btn" onclick="loadAnalyticsOverview()">Refresh</button>
+                </div>
+                <div id="analyticsFlowRollups" style="padding: 20px;">
+                    <div style="display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                        <div style="background: #1a202c; border: 1px solid #2d3748; border-radius: 12px; padding: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">Age Buckets</div>
+                            <div id="analyticsAgeFlows">
+                                <div class="empty-state"><p>Enable analytics to view age buckets.</p></div>
+                            </div>
+                        </div>
+                        <div style="background: #1a202c; border: 1px solid #2d3748; border-radius: 12px; padding: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">Liquidity Tiers</div>
+                            <div id="analyticsLiquidityFlows">
+                                <div class="empty-state"><p>Enable analytics to view liquidity tiers.</p></div>
+                            </div>
+                        </div>
+                        <div style="background: #1a202c; border: 1px solid #2d3748; border-radius: 12px; padding: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">Revival Score Deciles</div>
+                            <div id="analyticsScoreFlows">
+                                <div class="empty-state"><p>Enable analytics to view score deciles.</p></div>
+                            </div>
+                        </div>
+                        <div style="background: #1a202c; border: 1px solid #2d3748; border-radius: 12px; padding: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">Flow Velocity</div>
+                            <div id="analyticsVelocityFlows">
+                                <div class="empty-state"><p>Waiting on baseline for delta comparison.</p></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1241,7 +1276,8 @@
                     document.getElementById('analyticsPeriodLabel').textContent = '';
                 }
 
-                renderAnalyticsTokenFlows(trading.flow_by_token_usd || {});
+                renderAnalyticsFlowRollups(trading);
+                renderMarketRegime(data.market_regime || {});
                 renderAnalyticsTrades(trading.recent || []);
                 updateAnalyticsChart((data.portfolio && data.portfolio.series) || [], period.days || data.period.requested_days || 0);
 
@@ -1343,31 +1379,138 @@
             }
         }
 
-        function renderAnalyticsTokenFlows(flowByToken) {
-            const container = document.getElementById('analyticsTokenFlows');
-            const entries = Object.entries(flowByToken || {}).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 5);
+        function renderAnalyticsFlowRollups(trading) {
+            const safeTrading = trading || {};
+            renderFlowMap('analyticsAgeFlows', safeTrading.flow_by_age || {}, 'No age-bucket flows yet.');
+            renderFlowMap('analyticsLiquidityFlows', safeTrading.flow_by_liquidity || {}, 'No liquidity-tier flows yet.');
+            renderFlowMap('analyticsScoreFlows', safeTrading.flow_by_score_decile || {}, 'No revival-score flows yet.');
+            renderFlowVelocity('analyticsVelocityFlows', safeTrading.flow_velocity || {});
+        }
 
+        function renderFlowMap(containerId, data, emptyMessage) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            const entries = Object.entries(data || {}).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
             if (!entries.length) {
-                container.innerHTML = '<div class="empty-state"><p>No token flow data yet.</p></div>';
+                container.innerHTML = `<div class="empty-state"><p>${emptyMessage}</p></div>`;
                 return;
             }
 
-            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 14px;">';
-            html += '<thead style="background: #2d3748;"><tr>';
-            html += '<th style="padding: 10px; text-align: left;">Token</th>';
-            html += '<th style="padding: 10px; text-align: right;">Net Flow (USD)</th>';
-            html += '</tr></thead><tbody>';
-
-            entries.forEach(([token, amount]) => {
-                const display = token.length > 10 ? `${token.slice(0, 4)}…${token.slice(-4)}` : token;
+            let html = '<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px;">';
+            entries.forEach(([bucket, amount]) => {
                 const color = amount >= 0 ? '#48bb78' : '#f56565';
-                html += `<tr style="border-bottom: 1px solid #2d3748;">
-                    <td style="padding: 10px;">${display}</td>
-                    <td style="padding: 10px; text-align: right; color: ${color};">${formatCurrency(amount)}</td>
-                </tr>`;
+                html += `<li style="display: flex; justify-content: space-between; background: rgba(45, 55, 72, 0.45); border-radius: 8px; padding: 8px 10px; color: #e2e8f0;">
+                    <span>${bucket}</span>
+                    <span style="color: ${color}; font-variant-numeric: tabular-nums;">${formatCurrency(amount)}</span>
+                </li>`;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function renderFlowVelocity(containerId, velocity) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            const sections = [
+                { key: 'by_age', label: 'Age' },
+                { key: 'by_liquidity', label: 'Liquidity' },
+                { key: 'by_score_decile', label: 'Score' },
+            ];
+
+            const flattened = [];
+            sections.forEach(section => {
+                const values = velocity && velocity[section.key] ? Object.entries(velocity[section.key]) : [];
+                values.forEach(([bucket, delta]) => {
+                    flattened.push({ key: `${section.label} · ${bucket}`, value: delta });
+                });
             });
 
-            html += '</tbody></table>';
+            if (!flattened.length) {
+                container.innerHTML = '<div class="empty-state"><p>No prior baseline yet.</p></div>';
+                return;
+            }
+
+            let maxPositive = null;
+            let maxNegative = null;
+            flattened.forEach(item => {
+                if (item.value >= 0 && (!maxPositive || item.value > maxPositive.value)) {
+                    maxPositive = item;
+                }
+                if (item.value < 0 && (!maxNegative || item.value < maxNegative.value)) {
+                    maxNegative = item;
+                }
+            });
+
+            let html = '<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px;">';
+            flattened
+                .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+                .forEach(item => {
+                    const positive = item.value >= 0;
+                    const color = positive ? '#48bb78' : '#f56565';
+                    let highlight = '';
+                    if (maxPositive && item.key === maxPositive.key) {
+                        highlight = 'box-shadow: 0 0 0 1px rgba(72, 187, 120, 0.65);';
+                    } else if (maxNegative && item.key === maxNegative.key) {
+                        highlight = 'box-shadow: 0 0 0 1px rgba(245, 101, 101, 0.65);';
+                    }
+                    const arrow = positive ? '▲' : '▼';
+                    html += `<li style="display: flex; justify-content: space-between; border-radius: 8px; padding: 8px 10px; background: rgba(45, 55, 72, 0.45); color: #e2e8f0; ${highlight}">
+                        <span>${item.key}</span>
+                        <span style="color: ${color}; font-variant-numeric: tabular-nums;">${arrow} ${formatCurrency(item.value)}</span>
+                    </li>`;
+                });
+            html += '</ul>';
+            container.innerHTML = html;
+        }
+
+        function renderMarketRegime(regime) {
+            const container = document.getElementById('analyticsMarketRegime');
+            if (!container) return;
+
+            if (!regime || regime.score === null || regime.score === undefined) {
+                container.innerHTML = '<div class="empty-state"><p>No market regime reading yet.</p></div>';
+                return;
+            }
+
+            const scorePct = Math.round((regime.score ?? 0) * 100);
+            const label = scorePct >= 65 ? 'Risk-On' : scorePct <= 40 ? 'Risk-Off' : 'Neutral';
+            const labelColor = label === 'Risk-On' ? '#48bb78' : label === 'Risk-Off' ? '#f56565' : '#f6ad55';
+
+            const formatPctOrDash = value => value === null || value === undefined ? '--' : `${value.toFixed(2)}%`;
+            const breadth = regime.breadth_positive_h24 !== null && regime.breadth_positive_h24 !== undefined
+                ? `${(regime.breadth_positive_h24 * 100).toFixed(1)}%`
+                : '--';
+
+            const metrics = [
+                { label: 'Score', value: `${scorePct}`, suffix: '/100', color: labelColor },
+                { label: 'Weighted 6h', value: formatPctOrDash(regime.weighted_return_h6_pct), color: '#63b3ed' },
+                { label: 'Weighted 24h', value: formatPctOrDash(regime.weighted_return_h24_pct), color: '#63b3ed' },
+                { label: 'Breadth Positive', value: breadth, color: '#e2e8f0' },
+                { label: 'Pairs Tracked', value: formatNumber(regime.pair_count || 0, 0), color: '#e2e8f0' },
+                { label: 'Total Liquidity', value: formatCurrency(regime.total_liquidity_usd || 0), color: '#e2e8f0' },
+            ];
+
+            let html = `<div style="display: flex; flex-direction: column; gap: 12px;">
+                <div>
+                    <div style="font-size: 1.4rem; font-weight: 600; color: ${labelColor};">${label}</div>
+                    <div style="color: #a0aec0; font-size: 0.85rem;">Updated ${regime.updated_at ? new Date(regime.updated_at).toLocaleString('en-US') : 'recently'}</div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">`;
+
+            metrics.forEach(metric => {
+                html += `<div style="background: rgba(45,55,72,0.55); border-radius: 10px; padding: 12px;">
+                    <div style="color: #a0aec0; font-size: 0.8rem;">${metric.label}</div>
+                    <div style="color: ${metric.color}; font-size: 1.1rem; font-weight: 600;">${metric.value}${metric.suffix || ''}</div>
+                </div>`;
+            });
+
+            html += '</div>';
+
+            html += `<div style="color: #718096; font-size: 0.8rem;">Query: ${regime.query || 'solana meme'} · Data source: Dexscreener</div>`;
+            html += '</div>';
+
             container.innerHTML = html;
         }
 

@@ -171,7 +171,7 @@ if _parsed_max_positions is not None and _parsed_max_positions <= 0:
     _parsed_max_positions = None
 
 PAPER_TRADING_MAX_POSITIONS = _parsed_max_positions  # None = unlimited
-PAPER_TRADING_MIN_REVIVAL_SCORE = 0.7  # Minimum score to trade (0-1) - aligned with tighter opportunity threshold
+PAPER_TRADING_MIN_REVIVAL_SCORE = 0.5  # Minimum score to trade (0-1) - lowered to broaden opportunity set
 
 # Paper Trading Exit Strategy 🎯
 PAPER_TRADING_STOP_LOSS_PCT = -20  # -20% stop loss

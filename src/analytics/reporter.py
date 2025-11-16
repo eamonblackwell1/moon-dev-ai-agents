@@ -155,6 +155,14 @@ class AnalyticsReporter:
                 "sell_count": summary["trading"]["sell_count"],
                 "net_capital_flow_usd": summary["trading"]["net_capital_flow_usd"],
                 "top_token_flows": top_tokens,
+                "flow_breakdowns": {
+                    "age": summary["trading"].get("flow_by_age", {}),
+                    "liquidity": summary["trading"].get("flow_by_liquidity", {}),
+                    "score_decile": summary["trading"].get("flow_by_score_decile", {}),
+                },
+                "flow_velocity": summary["trading"].get("flow_velocity", {}),
+                "pnl_by_exit_type": summary["trading"].get("pnl_by_exit_type", {}),
+                "hold_time_buckets": summary["trading"].get("hold_time_buckets", {}),
                 "recent": summary["trading"]["recent"][:5],
             },
             "signals": {
@@ -167,6 +175,7 @@ class AnalyticsReporter:
                 "series_tail": _truncate_series(summary["portfolio"]["series"], limit=30),
                 "last_snapshot": summary["portfolio"]["last_snapshot"],
             },
+            "market_regime": summary.get("market_regime"),
         }
         return payload
 
